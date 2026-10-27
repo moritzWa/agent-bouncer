@@ -55,31 +55,19 @@ agent-bouncer log -n 50       # raw events as JSON lines
 
 - **First come, first served.** Waiters are admitted in arrival order. A waiter
   that dies leaves the line on its own.
-- **No slot count. Jobs are admitted by what they need.** Before a job starts, a
-  small, cheap model (Gemini Flash Lite through OpenRouter, about a second and a
-  fraction of a cent) predicts its peak RAM and CPU cores. It is shown the
-  command, the directory, and what the closest past runs actually used, which the
-  bouncer measures for every job, plus what the command expands to (a package.json
-  script), the repo size, the machine's free RAM and load, and the jobs already
-  running. The agent starting the job can add its own guess with `--expect-ram 4gb
-  --expect-secs 3m`, which the model weighs as one clue. A job starts when free RAM
-  stays above a floor and the cores fit, counting what every running job is still
-  expected to grow into. A small job slips in beside big ones; a heavy one waits
-  for room. There is no limit on jobs at once. An answer is reused until a job of
-  the same kind finishes and gives a new measurement, so a burst of the same
-  command costs one call. It is never below what past runs of the same command in
-  the same folder mostly used, and falls back to past runs (or 1.5 GB and 2 cores
-  for a command it has never seen) when there is no key or no answer in time. Free RAM and CPU are measured now, not from a one-minute
-  load average that stays high after a job ends. A new job also gets a few seconds
-  to ramp up before the next one starts beside it.
-- **Cleans up after jobs.** Each job runs in its own process group. When it ends,
-  whatever it left running (dev servers, headless browsers) is stopped.
-  `--no-reap` turns that off.
-- **Never kills a running job.** When RAM runs low it stops admitting new jobs. It
-  does not kill or requeue one that is already running.
-- **Measures itself.** Every wait, refusal and run goes into an event log, so
-  "how often am I resource-bound?" has a number. `stats` gives you waits per day,
-  what blocked them, and each command's peak RAM.
+- **Admits by what a job needs, not a slot count.** A cheap model (Gemini Flash
+  Lite via OpenRouter, about a second) predicts the job's peak RAM and cores from
+  the closest past runs, which are measured for every job. A job starts when free
+  RAM stays above a floor and the cores fit. Small jobs slip in beside big ones.
+  With no key it falls back to past runs. Details in the
+  [explainer](https://moritzwa.github.io/agent-bouncer/how-it-works.html).
+- **Never kills a running job.** When the machine is full it stops admitting new
+  jobs and nothing else.
+- **Cleans up after jobs.** Each job runs in its own process group; leftover dev
+  servers and headless browsers are stopped when it ends (`--no-reap` turns that
+  off).
+- **Measures itself.** Every wait, refusal and run goes into an event log;
+  `stats` shows waits, what blocked them and each command's peak RAM.
 - **No deadlocks.** A job that calls `agent-bouncer` itself runs directly.
 
 ## Settings
