@@ -15,6 +15,8 @@ pub struct Settings {
     pub max_cpu_busy: f64,
     /// Milliseconds a new job gets to ramp up before another starts beside it.
     pub settle_ms: u64,
+    /// One-minute load average, per core, above which no job is let in beside a running one.
+    pub max_load_per_core: f64,
 }
 
 impl Settings {
@@ -29,6 +31,7 @@ impl Settings {
             min_free_gb: env_parse("AGENT_BOUNCER_MIN_FREE_GB").unwrap_or(3.0),
             max_cpu_busy: env_parse("AGENT_BOUNCER_MAX_CPU").unwrap_or(90.0),
             settle_ms: env_parse("AGENT_BOUNCER_SETTLE_MS").unwrap_or(2000),
+            max_load_per_core: env_parse("AGENT_BOUNCER_MAX_LOAD").unwrap_or(1.5),
         }
     }
 }

@@ -171,6 +171,12 @@ fn machine_check(
             return Err(("ram", snap));
         }
     }
+    if others_running && settings.max_load_per_core > 0.0 {
+        let limit = settings.max_load_per_core * sysinfo::cores() as f64;
+        if sysinfo::load_average().is_some_and(|load| load > limit) {
+            return Err(("load", snap));
+        }
+    }
     if others_running && predicted_mb >= LIGHT_JOB_MB && settling(root, settings.settle_ms) {
         return Err(("settle", snap));
     }
@@ -192,6 +198,7 @@ fn explain(reason: &str) -> &'static str {
         "ram" => "free RAM is below the floor",
         "cpu" => "the CPU is saturated",
         "settle" => "the last job is still starting up",
+        "load" => "the machine is overloaded",
         _ => "busy",
     }
 }

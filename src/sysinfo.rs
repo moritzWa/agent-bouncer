@@ -31,6 +31,13 @@ pub fn memory() -> Option<Memory> {
     }
 }
 
+/// The one-minute load average: runnable and waiting processes, not CPU percent.
+pub fn load_average() -> Option<f64> {
+    let mut load = [0.0f64; 1];
+    let got = unsafe { libc::getloadavg(load.as_mut_ptr(), 1) };
+    (got == 1).then_some(load[0])
+}
+
 pub fn cpu_busy_pct() -> Option<f64> {
     let a = cpu_ticks()?;
     std::thread::sleep(Duration::from_millis(300));
@@ -93,20 +100,27 @@ pub fn parse_vm_stat(text: &str) -> Option<f64> {
             page = v;
         }
     }
-    let mut pages = 0.0;
+    let mut reclaimable = 0.0;
+    let mut inactive = 0.0;
+    let mut file_backed = None;
     let mut seen = false;
     for line in text.lines() {
         let Some((key, value)) = line.split_once(':') else { continue };
-        if matches!(
-            key.trim(),
-            "Pages free" | "Pages inactive" | "Pages speculative" | "Pages purgeable"
-        ) {
-            if let Ok(v) = value.trim().trim_end_matches('.').parse::<f64>() {
-                pages += v;
+        let Ok(v) = value.trim().trim_end_matches('.').parse::<f64>() else { continue };
+        match key.trim() {
+            "Pages free" | "Pages speculative" | "Pages purgeable" => {
+                reclaimable += v;
                 seen = true;
             }
+            "Pages inactive" => inactive = v,
+            "File-backed pages" => file_backed = Some(v),
+            _ => {}
         }
     }
+    // Inactive pages are mostly apps' own memory, which has to be compressed or
+    // swapped out to reuse, so only free, purgeable and file cache count as room.
+    // Older macOS versions do not report file-backed pages; use inactive there.
+    let pages = reclaimable + file_backed.unwrap_or(inactive);
     seen.then(|| pages * page / GB)
 }
 
@@ -164,6 +178,13 @@ mod tests {
         let gb = parse_vm_stat(text).unwrap();
         let expected = (38704.0 + 910669.0 + 1000.0 + 10000.0) * 16384.0 / GB;
         assert!((gb - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn file_cache_counts_as_room_but_inactive_memory_does_not() {
+        let text = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 100.\nPages inactive: 5000.\nPages speculative: 10.\nPages purgeable: 20.\nFile-backed pages: 300.\n";
+        let gb = parse_vm_stat(text).unwrap();
+        assert!((gb - 430.0 * 16384.0 / GB).abs() < 1e-9);
     }
 
     #[test]
