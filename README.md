@@ -16,8 +16,7 @@ waiting
   1.  0m31s   cargo clippy   ~/Code/agentview   (all slots are in use)
 ```
 
-[agentview](https://github.com/moritzWa/agentview) shows the queue above its input,
-marks sessions stuck in line, and lists the queue above the input:
+[agentview](https://github.com/moritzWa/agentview) lists the queue above its input and marks sessions stuck in line:
 
 <img src="docs/assets/agentview-queue.gif" alt="agentview with a panel above the input listing two running and two waiting jobs and when the queue should clear" width="800">
 
@@ -74,9 +73,10 @@ run the command, 128+N when stopped by signal N.
 ## Install
 
 ```sh
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/moritzWa/agent-bouncer/main/install.sh | bash
 ```
 
+Or build it yourself: `cargo install --git https://github.com/moritzWa/agent-bouncer`.
 macOS and Linux.
 
 ## License
