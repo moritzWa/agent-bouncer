@@ -1,47 +1,116 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 330" width="940" height="330" role="img" aria-label="Many agents, a bouncer gate, then the machine">
-  <style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}</style>
-  <rect width="940" height="330" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 572" width="1040" height="572" role="img" aria-label="Agents send jobs to agent-bouncer. It predicts each job's RAM and cores from past runs with a small model, checks the machine has room, then runs the job or makes it wait in line. Real peaks go back into the history.">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #000; }
+    .b { font-weight: 700; font-size: 12px; }
+    .s { font-size: 11px; fill: #5c5f77; }
+    .h { font-weight: 700; font-size: 14px; }
+  </style>
   <defs>
-    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5c5f77"/></marker>
-    <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d20f39"/></marker>
+    <marker id="ovg" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5c5f77"/></marker>
+    <marker id="ovn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#40a02b"/></marker>
+    <marker id="ova" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#df8e1d"/></marker>
+    <marker id="ovp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8839ef"/></marker>
   </defs>
-  <!-- agents -->
-  <text x="20" y="26" font-size="14" font-weight="600" fill="#5c5f77">AGENTS (each in its own terminal)</text>
-  <g font-size="13">
-    <rect x="20" y="40" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="64">agent A: cargo test</text>
-    <rect x="20" y="88" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="112">agent B: bun run ship</text>
-    <rect x="20" y="136" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="160">agent C: playwright</text>
-    <rect x="20" y="184" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="208">agent D: npm ci</text>
-    <rect x="20" y="232" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="256">agent E: go test</text>
-    <rect x="20" y="280" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="304">agent F: vitest</text>
+  <rect width="1040" height="572" fill="#fff"/>
+  <g transform="translate(0,46)">
+
+    <!-- agents -->
+    <text x="20" y="50" class="b" style="fill:#5c5f77">AGENTS</text>
+    <g>
+      <rect x="20" y="64" width="170" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="88" font-size="13">cargo test</text>
+      <rect x="20" y="116" width="170" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="140" font-size="13">bun run ship</text>
+      <rect x="20" y="168" width="170" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="192" font-size="13">playwright test</text>
+      <rect x="20" y="220" width="170" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="244" font-size="13">npm ci</text>
+      <rect x="20" y="272" width="170" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="296" font-size="13">go test</text>
+      <rect x="20" y="324" width="170" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="348" font-size="13">vitest</text>
+    </g>
+    <g stroke="#5c5f77" stroke-width="1.5" fill="none" marker-end="url(#ovg)">
+      <path d="M190 83 C225 83 225 180 258 184"/>
+      <path d="M190 135 C225 135 225 182 258 185"/>
+      <path d="M190 187 C225 187 225 186 258 186"/>
+      <path d="M190 239 C225 239 225 188 258 187"/>
+      <path d="M190 291 C225 291 225 190 258 188"/>
+      <path d="M190 343 C225 343 225 192 258 189"/>
+    </g>
+    <text x="20" y="392" class="s">Each agent runs its command</text>
+    <text x="20" y="407" class="s">as <tspan font-family="SF Mono, Menlo, monospace">agent-bouncer run -- cmd</tspan></text>
+
+    <!-- bouncer container -->
+    <rect x="240" y="24" width="560" height="496" rx="20" fill="#fbfcfe" stroke="#000" stroke-width="2"/>
+    <rect x="262" y="10" width="150" height="28" rx="14" fill="#000"/>
+    <text x="337" y="29" text-anchor="middle" font-size="14" font-weight="700" style="fill:#fff">agent-bouncer</text>
+
+    <!-- step 1 -->
+    <rect x="262" y="64" width="516" height="216" rx="14" fill="#fff" stroke="#dce0e8"/>
+    <text x="278" y="90" class="h">1  Predict peak RAM and cores</text>
+
+    <rect x="278" y="108" width="190" height="42" rx="10" fill="#eef3ff" stroke="#1e66f5"/>
+    <text x="290" y="125" class="b">command, folder, script</text><text x="290" y="141" class="s">and what the script expands to</text>
+    <rect x="278" y="158" width="190" height="42" rx="10" fill="#e8f6f6" stroke="#179299"/>
+    <text x="290" y="175" class="b">the machine right now</text><text x="290" y="191" class="s">free RAM, load, running jobs</text>
+    <rect x="278" y="208" width="190" height="42" rx="10" fill="#fff" stroke="#9ca0b0" stroke-dasharray="4 3"/>
+    <text x="290" y="225" class="b">the agent's own guess</text><text x="290" y="241" class="s">optional: --expect-ram 4gb</text>
+
+    <rect x="500" y="104" width="120" height="58" rx="12" fill="#f5eeff" stroke="#8839ef"/>
+    <text x="560" y="120" text-anchor="middle" class="b">history log</text>
+    <text x="560" y="135" text-anchor="middle" class="s">15 closest past runs:</text>
+    <text x="560" y="149" text-anchor="middle" class="s">RAM, cores, seconds</text>
+
+    <rect x="500" y="178" width="120" height="58" rx="12" fill="#000"/>
+    <text x="560" y="197" text-anchor="middle" class="b" style="fill:#fff">ask the model</text>
+    <text x="560" y="212" text-anchor="middle" class="s" style="fill:#cdd6f4">Gemini Flash Lite</text>
+    <text x="560" y="226" text-anchor="middle" class="s" style="fill:#cdd6f4">about 1 second</text>
+
+    <rect x="644" y="178" width="120" height="58" rx="12" fill="#eaf7ec" stroke="#40a02b"/>
+    <text x="704" y="197" text-anchor="middle" class="b">~4 GB, 3 cores</text>
+    <text x="704" y="213" text-anchor="middle" class="s">cached until a similar</text>
+    <text x="704" y="227" text-anchor="middle" class="s">job finishes</text>
+
+    <g stroke="#5c5f77" stroke-width="1.5" fill="none" marker-end="url(#ovg)">
+      <path d="M468 129 L497 200"/>
+      <path d="M468 179 L497 207"/>
+      <path d="M468 229 L497 214"/>
+      <path d="M560 162 L560 176"/>
+      <path d="M620 207 L642 207"/>
+      <path d="M520 280 L520 310"/>
+    </g>
+    <text x="500" y="259" class="s" style="fill:#7a4f00">no key or model down: past runs only</text>
+    <text x="500" y="273" class="s" style="fill:#7a4f00">(never seen it: 1.5 GB and 2 cores)</text>
+    <text x="530" y="300" class="s">needs about 4 GB and 3 cores</text>
+
+    <!-- step 2 -->
+    <rect x="262" y="312" width="516" height="124" rx="14" fill="#fff" stroke="#dce0e8"/>
+    <text x="278" y="338" class="h">2  Check room: does it fit beside what is running?</text>
+    <rect x="278" y="352" width="114" height="70" rx="10" fill="#eef3ff" stroke="#1e66f5"/>
+    <text x="335" y="373" text-anchor="middle" class="b">RAM</text><text x="335" y="391" text-anchor="middle" class="s">3 GB stays free</text><text x="335" y="405" text-anchor="middle" class="s">after every peak</text>
+    <rect x="402" y="352" width="114" height="70" rx="10" fill="#f5eeff" stroke="#8839ef"/>
+    <text x="459" y="373" text-anchor="middle" class="b">Cores</text><text x="459" y="391" text-anchor="middle" class="s">running jobs plus</text><text x="459" y="405" text-anchor="middle" class="s">this one fit the CPU</text>
+    <rect x="526" y="352" width="114" height="70" rx="10" fill="#e8f6f6" stroke="#179299"/>
+    <text x="583" y="373" text-anchor="middle" class="b">Load</text><text x="583" y="391" text-anchor="middle" class="s">1-minute load under</text><text x="583" y="405" text-anchor="middle" class="s">1.5 per core</text>
+    <rect x="650" y="352" width="114" height="70" rx="10" fill="#fdeef1" stroke="#d20f39"/>
+    <text x="707" y="373" text-anchor="middle" class="b">CPU</text><text x="707" y="391" text-anchor="middle" class="s">not saturated now</text><text x="707" y="405" text-anchor="middle" class="s">(under 90 percent)</text>
+
+    <!-- wait strip -->
+    <rect x="262" y="460" width="516" height="48" rx="12" fill="#fff8e8" stroke="#df8e1d"/>
+    <text x="520" y="480" text-anchor="middle" class="b" style="fill:#7a4f00">Does not fit yet: wait in line, first come, first served</text>
+    <text x="520" y="496" text-anchor="middle" class="s" style="fill:#7a4f00">only the head of the line is re-checked, twice a second. A running job is never killed.</text>
+    <path d="M340 436 L340 458" stroke="#df8e1d" stroke-width="2" fill="none" marker-end="url(#ova)"/>
+    <text x="350" y="452" class="s" style="fill:#7a4f00">no</text>
+    <path d="M700 458 L700 438" stroke="#df8e1d" stroke-width="2" stroke-dasharray="4 3" fill="none" marker-end="url(#ova)"/>
+    <text x="710" y="452" class="s" style="fill:#7a4f00">room now</text>
+
+    <!-- machine -->
+    <path d="M800 387 L866 387" stroke="#40a02b" stroke-width="3" fill="none" marker-end="url(#ovn)"/>
+    <text x="804" y="377" class="b" style="fill:#40a02b">fits</text>
+    <rect x="870" y="322" width="150" height="132" rx="14" fill="#f6f7fb" stroke="#dce0e8"/>
+    <text x="945" y="346" text-anchor="middle" class="b" style="font-size:14px">your Mac</text>
+    <text x="884" y="372" class="s">RAM</text><rect x="916" y="363" width="90" height="10" rx="5" fill="#e6e9ef"/><rect x="916" y="363" width="58" height="10" rx="5" fill="#1e66f5"/>
+    <text x="884" y="398" class="s">CPU</text><rect x="916" y="389" width="90" height="10" rx="5" fill="#e6e9ef"/><rect x="916" y="389" width="50" height="10" rx="5" fill="#8839ef"/>
+    <text x="884" y="424" class="s">load</text><rect x="916" y="415" width="90" height="10" rx="5" fill="#e6e9ef"/><rect x="916" y="415" width="38" height="10" rx="5" fill="#179299"/>
+    <text x="945" y="446" text-anchor="middle" class="s" style="fill:#40a02b;font-weight:600">stays responsive</text>
+
+    <!-- learning loop -->
+    <path d="M945 322 L945 -16 L560 -16 L560 102" stroke="#8839ef" stroke-width="2.5" fill="none" marker-end="url(#ovp)"/>
+    <text x="760" y="-24" text-anchor="middle" class="b" style="fill:#8839ef">when a job ends, its real peak RAM and cores go into the history</text>
   </g>
-  <g stroke="#5c5f77" stroke-width="1.5" fill="none" marker-end="url(#a)">
-    <path d="M172 59 L330 150"/><path d="M172 107 L330 158"/><path d="M172 155 L330 166"/>
-    <path d="M172 203 L330 176"/><path d="M172 251 L330 184"/><path d="M172 299 L330 192"/>
-  </g>
-  <!-- bouncer -->
-  <rect x="332" y="110" width="150" height="110" rx="16" fill="#000"/>
-  <text x="407" y="148" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">agent-bouncer</text>
-  <text x="407" y="170" text-anchor="middle" font-size="12" fill="#cdd6f4">asks: does it fit?</text>
-  <text x="407" y="188" text-anchor="middle" font-size="12" fill="#cdd6f4">first come, first served</text>
-  <text x="407" y="206" text-anchor="middle" font-size="12" fill="#cdd6f4">never kills a running job</text>
-  <!-- in -->
-  <path d="M484 140 L660 140" stroke="#40a02b" stroke-width="3" fill="none" marker-end="url(#a)"/>
-  <text x="500" y="130" font-size="13" fill="#40a02b" font-weight="600">fits: runs now</text>
-  <!-- waiting -->
-  <path d="M484 190 L560 190 L560 262" stroke="#df8e1d" stroke-width="3" fill="none" marker-end="url(#a)"/>
-  <rect x="500" y="266" width="220" height="40" rx="10" fill="#fff8e8" stroke="#df8e1d"/>
-  <text x="610" y="291" text-anchor="middle" font-size="13" fill="#7a4f00">waits in line, in arrival order</text>
-  <!-- machine -->
-  <rect x="664" y="50" width="256" height="170" rx="16" fill="#f6f7fb" stroke="#dce0e8"/>
-  <text x="792" y="76" text-anchor="middle" font-size="14" font-weight="600">your Mac</text>
-  <text x="680" y="104" font-size="12" fill="#5c5f77">RAM</text>
-  <rect x="716" y="92" width="190" height="14" rx="7" fill="#e6e9ef"/><rect x="716" y="92" width="120" height="14" rx="7" fill="#1e66f5"/>
-  <text x="680" y="134" font-size="12" fill="#5c5f77">CPU</text>
-  <rect x="716" y="122" width="190" height="14" rx="7" fill="#e6e9ef"/><rect x="716" y="122" width="105" height="14" rx="7" fill="#8839ef"/>
-  <text x="680" y="164" font-size="12" fill="#5c5f77">load</text>
-  <rect x="716" y="152" width="190" height="14" rx="7" fill="#e6e9ef"/><rect x="716" y="152" width="80" height="14" rx="7" fill="#179299"/>
-  <text x="792" y="200" text-anchor="middle" font-size="12" fill="#40a02b" font-weight="600">stays responsive</text>
-  <!-- without -->
-  <text x="660" y="26" font-size="12" fill="#d20f39">without it: all six start at once and everything lags</text>
 </svg>
