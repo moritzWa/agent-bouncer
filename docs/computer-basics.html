@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAM, cores and load, and how a job uses them</title>
+<style>
+  :root { --ink:#000; --dim:#5c5f77; --line:#dce0e8; --card:#f6f7fb; --blue:#1e66f5; --green:#40a02b; --red:#d20f39; --amber:#df8e1d; --purple:#8839ef; --teal:#179299; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#fff; color:var(--ink); font:16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 56px 28px 96px; }
+  h1 { font-size: 40px; line-height:1.1; margin:0 0 12px; letter-spacing:-0.02em; }
+  h2 { font-size: 25px; margin: 64px 0 8px; }
+  p { margin: 8px 0; }
+  .lead { font-size: 20px; color: var(--dim); max-width: 740px; }
+  .fig { margin: 18px 0 6px; border:1px solid var(--line); border-radius:16px; padding:18px; overflow-x:auto; }
+  .fig svg { display:block; width:100%; height:auto; }
+  .cap { color: var(--dim); font-size:14px; margin: 6px 4px 0; }
+  code { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size:.9em; background:var(--card); padding:1px 6px; border-radius:6px; }
+  .why { border-left:4px solid var(--blue); background:var(--card); padding:12px 18px; border-radius:0 12px 12px 0; margin:14px 0; }
+  table { border-collapse: collapse; width:100%; font-size:15px; margin:12px 0; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color: var(--dim); }
+  svg text { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif; }
+</style>
+</head>
+<body>
+<main>
+<h1>RAM, cores and load</h1>
+<p class="lead">A computer has <b>two budgets</b> that a job spends: <b>memory</b> (space, held while the job runs) and <b>CPU cores</b> (time, spent while it works). Run out of either and everything slows down.</p>
+
+<h2>1. Memory is a desk, cores are hands</h2>
+<div class="fig">
+<svg viewBox="0 0 940 260" role="img" aria-label="RAM as desk space, cores as workers">
+  <g font-size="14">
+    <text x="20" y="26" font-weight="700">RAM: the desk. Space, held until the job ends.</text>
+    <rect x="20" y="40" width="420" height="190" rx="14" fill="#f6f7fb" stroke="#dce0e8"/>
+    <rect x="34" y="54" width="170" height="70" rx="8" fill="#1e66f5"/><text x="119" y="94" text-anchor="middle" fill="#fff" font-weight="600">build: 4 GB</text>
+    <rect x="214" y="54" width="110" height="70" rx="8" fill="#8839ef"/><text x="269" y="94" text-anchor="middle" fill="#fff" font-weight="600">browser 2 GB</text>
+    <rect x="334" y="54" width="90" height="70" rx="8" fill="#179299"/><text x="379" y="94" text-anchor="middle" fill="#fff" font-weight="600">apps</text>
+    <rect x="34" y="134" width="390" height="84" rx="8" fill="#fff" stroke="#40a02b" stroke-dasharray="5 4"/><text x="229" y="181" text-anchor="middle" fill="#2a6b1c" font-weight="600">free: room for more jobs</text>
+    <text x="500" y="26" font-weight="700">Cores: the hands. Work per second.</text>
+    <g>
+      <circle cx="540" cy="80" r="22" fill="#1e66f5"/><circle cx="600" cy="80" r="22" fill="#1e66f5"/><circle cx="660" cy="80" r="22" fill="#1e66f5"/><circle cx="720" cy="80" r="22" fill="#8839ef"/>
+      <circle cx="540" cy="140" r="22" fill="#8839ef"/><circle cx="600" cy="140" r="22" fill="#179299"/><circle cx="660" cy="140" r="22" fill="#e6e9ef"/><circle cx="720" cy="140" r="22" fill="#e6e9ef"/>
+    </g>
+    <text x="500" y="200" font-size="13" fill="#5c5f77">6 of 8 cores busy: a new job that needs 4 gets only 2</text>
+    <text x="500" y="220" font-size="13" fill="#5c5f77">and runs slower. Nothing breaks.</text>
+  </g>
+</svg>
+</div>
+<table>
+  <tr><th></th><th>RAM</th><th>Cores</th></tr>
+  <tr><td><b>What it is</b></td><td>Working memory, in <b>GB</b></td><td>Parallel workers, counted in <b>cores</b> (this Mac has 18)</td></tr>
+  <tr><td><b>A job uses it</b></td><td><b>Held</b> for the whole run; peak matters</td><td><b>Spent</b> only while computing; shared by time slices</td></tr>
+  <tr><td><b>Too much means</b></td><td>The Mac <b>swaps</b> to disk and freezes</td><td>Jobs <b>slow down</b>, the UI gets sluggish</td></tr>
+  <tr><td><b>Why the bouncer cares</b></td><td>Never over-commit it</td><td>Don't stack jobs that all want every core</td></tr>
+</table>
+
+<h2>2. What happens when RAM runs out</h2>
+<div class="fig">
+<svg viewBox="0 0 940 230" role="img" aria-label="RAM full, compress, then swap to disk">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5c5f77"/></marker></defs>
+  <g font-size="13" text-anchor="middle">
+    <rect x="20" y="40" width="250" height="110" rx="14" fill="#eaf7ec" stroke="#40a02b"/><text x="145" y="70" font-weight="700">Plenty free</text><text x="145" y="94" font-size="12">Everything lives in RAM.</text><text x="145" y="112" font-size="12">Fast. Responsive.</text>
+    <rect x="345" y="40" width="250" height="110" rx="14" fill="#fff8e8" stroke="#df8e1d"/><text x="470" y="70" font-weight="700">Getting tight</text><text x="470" y="94" font-size="12">Inactive memory is compressed.</text><text x="470" y="112" font-size="12">Small CPU cost, small lag.</text>
+    <rect x="670" y="40" width="250" height="110" rx="14" fill="#fdeef1" stroke="#d20f39"/><text x="795" y="70" font-weight="700">Full: swap</text><text x="795" y="94" font-size="12">Memory is written to the SSD</text><text x="795" y="112" font-size="12">and read back. Everything lags.</text>
+  </g>
+  <g stroke="#5c5f77" stroke-width="2" fill="none" marker-end="url(#a)"><path d="M272 95 L343 95"/><path d="M597 95 L668 95"/></g>
+  <text x="20" y="190" font-size="13" fill="#5c5f77"><tspan font-weight="700" fill="#000">swap used</tspan> (3.7 GB on this Mac in the example) is the tell: memory already on disk.</text>
+  <text x="20" y="210" font-size="13" fill="#5c5f77">The bouncer keeps a <tspan font-weight="700" fill="#000">floor of free RAM</tspan> (3 GB) so a new job never pushes you into the red box.</text>
+</svg>
+</div>
+
+<h2>3. Load average: how many jobs want a core</h2>
+<div class="fig">
+<svg viewBox="0 0 940 200" role="img" aria-label="Load average versus cores">
+  <g font-size="13">
+    <text x="20" y="26" font-weight="700">18 cores. Load is the number of tasks running or waiting for a core.</text>
+    <rect x="20" y="40" width="900" height="34" rx="8" fill="#e6e9ef"/><rect x="20" y="40" width="450" height="34" rx="8" fill="#40a02b"/><text x="30" y="62" fill="#fff" font-weight="600">load 9: half the cores busy, nobody waits</text>
+    <rect x="20" y="88" width="900" height="34" rx="8" fill="#e6e9ef"/><rect x="20" y="88" width="900" height="34" rx="8" fill="#df8e1d"/><text x="30" y="110" fill="#fff" font-weight="600">load 18: every core busy, nobody waits yet</text>
+    <rect x="20" y="136" width="900" height="34" rx="8" fill="#d20f39"/><text x="30" y="158" fill="#fff" font-weight="600">load 30: about 12 tasks queue for a core. The Mac feels slow.</text>
+    <text x="20" y="192" fill="#5c5f77">The bouncer holds new jobs when load passes <tspan font-weight="700" fill="#000">1.5 per core</tspan> (27 here). It is a 1-minute average, so it lags after jobs end.</text>
+  </g>
+</svg>
+</div>
+
+<h2>4. How one job spends both</h2>
+<div class="fig">
+<svg viewBox="0 0 940 300" role="img" aria-label="A job's RAM and cores over time">
+  <g font-size="13">
+    <text x="20" y="24" font-weight="700">bun run ship: a typical timeline</text>
+    <line x1="60" y1="260" x2="920" y2="260" stroke="#5c5f77"/><line x1="60" y1="40" x2="60" y2="260" stroke="#5c5f77"/>
+    <text x="10" y="150" transform="rotate(-90 20 150)" fill="#5c5f77" font-size="12">use</text>
+    <path d="M60 255 L140 200 L240 130 L420 100 L700 95 L800 105 L860 250 L920 258" fill="none" stroke="#1e66f5" stroke-width="3"/>
+    <text x="440" y="86" fill="#1e66f5" font-weight="700">RAM climbs, then stays near its peak (~4.5 GB)</text>
+    <path d="M60 255 L120 255 L170 80 L215 230 L270 70 L330 235 L400 85 L470 225 L560 120 L640 235 L720 150 L790 240 L860 255 L920 258" fill="none" stroke="#8839ef" stroke-width="3"/>
+    <text x="560" y="205" fill="#8839ef" font-weight="700">cores spike (up to ~9) while workers run, then idle</text>
+    <text x="60" y="282" fill="#5c5f77" font-size="12">start</text><text x="880" y="282" fill="#5c5f77" font-size="12">end</text>
+  </g>
+</svg>
+</div>
+<div class="why"><b>Why peaks, not averages.</b> The bouncer records each job's <b>peak RAM</b> (sampled every 2 s) and <b>peak cores</b> (CPU time over 4 s windows). RAM must be <b>reserved</b> for the whole run, and the peak is what freezes a Mac. A job that is at 50 MB now but peaks at 5 GB still counts as 5 GB.</div>
+
+<h2>5. Terms</h2>
+<table>
+  <tr><th>Term</th><th>Plain meaning</th></tr>
+  <tr><td><b>Peak RSS</b></td><td>The most physical memory the job's processes held at once, added up. Shared memory can count twice.</td></tr>
+  <tr><td><b>Process group</b></td><td>A job and everything it starts (workers, browsers). The bouncer measures and cleans up the whole group.</td></tr>
+  <tr><td><b>Swap</b></td><td>Disk space used as overflow memory. Used swap means the machine already ran short.</td></tr>
+  <tr><td><b>Free vs available</b></td><td>The bouncer counts only free, purgeable and file-cache memory as room. Inactive app memory is not room.</td></tr>
+  <tr><td><b>Core budget</b></td><td>Sum of the cores each running job is expected to use. A new job must fit in what is left.</td></tr>
+  <tr><td><b>Ramp-up</b></td><td>A new job takes seconds to reach full use, so the next big job waits 2 s.</td></tr>
+</table>
+<p class="cap">The queue itself is explained in <a href="how-it-works.html">how-it-works.html</a>.</p>
+</main>
+</body>
+</html>
