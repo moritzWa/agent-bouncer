@@ -55,15 +55,6 @@ impl History {
         }
     }
 
-    /// What three or more past runs of this kind of job mostly stayed under (the 75th
-    /// percentile), so a low guess from the model cannot go below what really happened.
-    pub fn typical(&self, label: Option<&str>, cmd: &str) -> Option<(u64, Option<f64>)> {
-        let key = stats::key_of(label, cmd);
-        let ram = self.peaks.get(&key).filter(|l| l.len() >= 3)?;
-        let cores = self.cores.get(&key).filter(|l| l.len() >= 3).map(|l| percentile_f(l, 0.75));
-        Some((stats::percentile(ram, 0.75), cores))
-    }
-
     pub fn knows(&self, label: Option<&str>, cmd: &str) -> bool {
         self.peaks.contains_key(&stats::key_of(label, cmd))
     }
@@ -79,7 +70,7 @@ impl History {
     }
 }
 
-fn percentile_f(sorted: &[f64], p: f64) -> f64 {
+pub fn percentile_f(sorted: &[f64], p: f64) -> f64 {
     let index = ((sorted.len() - 1) as f64 * p).round() as usize;
     sorted[index.min(sorted.len() - 1)]
 }

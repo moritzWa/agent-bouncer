@@ -22,6 +22,7 @@ pub struct RunOpts {
     pub weight: usize,
     pub label: Option<String>,
     pub reap: bool,
+    pub hint: crate::predict::Hint,
 }
 
 pub const EXIT_BUSY: i32 = 75;
@@ -276,7 +277,7 @@ pub fn run(opts: RunOpts) -> i32 {
     let cmd_text = opts.command.join(" ");
     let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
     let running_now = crate::status::running_jobs(&root, settings.slots).0;
-    let pred = crate::predict::predict(&root, &settings, opts.label.as_deref(), &cmd_text, &cwd, &running_now);
+    let pred = crate::predict::predict(&root, &settings, opts.label.as_deref(), &cmd_text, &cwd, &running_now, &opts.hint);
     let mut waiter = match Waiter::create(
         &root,
         WaitInfo {
@@ -399,6 +400,9 @@ pub fn run(opts: RunOpts) -> i32 {
     admit.est_mb = Some(pred.ram_mb);
     admit.est_cores = Some(pred.cores);
     admit.est_source = Some(pred.source.to_string());
+    admit.hint_mb = opts.hint.ram_mb;
+    admit.hint_cores = opts.hint.cores;
+    admit.hint_secs = opts.hint.secs;
     log_event(&root, &admit);
 
     let fds: Vec<i32> = held.iter().map(|(_, f)| f.as_raw_fd()).collect();

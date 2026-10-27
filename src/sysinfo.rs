@@ -31,6 +31,17 @@ pub fn memory() -> Option<Memory> {
     }
 }
 
+pub fn total_ram_gb() -> Option<f64> {
+    if cfg!(target_os = "macos") {
+        let bytes: f64 = run("sysctl", &["-n", "hw.memsize"])?.trim().parse().ok()?;
+        Some(bytes / GB)
+    } else {
+        let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+        let kb: f64 = info.lines().find_map(|l| l.strip_prefix("MemTotal:"))?.split_whitespace().next()?.parse().ok()?;
+        Some(kb * 1024.0 / GB)
+    }
+}
+
 /// The one-minute load average: runnable and waiting processes, not CPU percent.
 pub fn load_average() -> Option<f64> {
     let mut load = [0.0f64; 1];

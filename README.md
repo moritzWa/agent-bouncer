@@ -41,6 +41,8 @@ never).
 ```sh
 agent-bouncer status          # machine load, running jobs, the line
 agent-bouncer predict -- cargo test   # what it expects a command to need
+agent-bouncer predict --show -- cargo test   # exactly what the model would be sent
+agent-bouncer doctor          # tests the model and key with a real call
 agent-bouncer stats --since 7d  # waits, refusals, heaviest commands
 agent-bouncer log -n 50       # raw events as JSON lines
 ```
@@ -53,13 +55,17 @@ agent-bouncer log -n 50       # raw events as JSON lines
   small, cheap model (Gemini Flash Lite through OpenRouter, about a second and a
   fraction of a cent) predicts its peak RAM and CPU cores. It is shown the
   command, the directory, and what the closest past runs actually used, which the
-  bouncer measures for every job. A job starts when free RAM stays above a floor
-  and the cores fit, counting what every running job is still expected to grow
-  into. A small job slips in beside big ones; a heavy one waits for room. The
-  answer is cached for an hour per command and directory, never goes below what
-  past runs of the same command mostly used, and falls back to those past runs
-  (or 1.5 GB and 2 cores for a command it has never seen) when there is no key or
-  no answer in time. Free RAM and CPU are measured now, not from a one-minute
+  bouncer measures for every job, plus what the command expands to (a package.json
+  script), the repo size, the machine's free RAM and load, and the jobs already
+  running. The agent starting the job can add its own guess with `--expect-ram 4gb
+  --expect-secs 3m`, which the model weighs as one clue. A job starts when free RAM
+  stays above a floor and the cores fit, counting what every running job is still
+  expected to grow into. A small job slips in beside big ones; a heavy one waits
+  for room. There is no limit on jobs at once. An answer is reused until a job of
+  the same kind finishes and gives a new measurement, so a burst of the same
+  command costs one call. It is never below what past runs of the same command in
+  the same folder mostly used, and falls back to past runs (or 1.5 GB and 2 cores
+  for a command it has never seen) when there is no key or no answer in time. Free RAM and CPU are measured now, not from a one-minute
   load average that stays high after a job ends. A new job also gets a few seconds
   to ramp up before the next one starts beside it.
 - **Cleans up after jobs.** Each job runs in its own process group. When it ends,
@@ -80,15 +86,20 @@ agent-bouncer log -n 50       # raw events as JSON lines
 | `AGENT_BOUNCER_OPENROUTER_KEY` | | Key for it. Also read from `~/.config/agent-bouncer/openrouter-key`, then `OPENROUTER_API_KEY` |
 | `AGENT_BOUNCER_MODEL_TIMEOUT` | 6 | Seconds to wait for the model before using past runs |
 | `AGENT_BOUNCER_MAX_CORES` | all cores | Cores the running jobs may be expected to use together |
-| `AGENT_BOUNCER_SLOTS` | 32 | Hard cap on jobs at once; `--weight N` takes N of them |
+| `AGENT_BOUNCER_SLOTS` | no limit | Optional hard cap on jobs at once; `--weight N` takes N of them |
 | `AGENT_BOUNCER_MIN_FREE_GB` | 3 | Free RAM floor for admitting a job |
 | `AGENT_BOUNCER_SETTLE_MS` | 2000 | Time a new job gets to ramp up before another starts beside it |
 | `AGENT_BOUNCER_MAX_LOAD` | 1.5 | One-minute load average per core above which no job starts beside a running one (0 turns it off) |
 | `AGENT_BOUNCER_MAX_CPU` | 90 | Busy CPU percent above which no job is admitted (100 turns the check off) |
 | `AGENT_BOUNCER_DIR` | `~/.local/state/agent-bouncer` | State and event log |
 
-**Privacy:** with a key set, each new kind of job sends its command line, directory
-and the commands and peak numbers of a few similar past runs to OpenRouter. Set
+**Setup:** nothing to configure. If `OPENROUTER_API_KEY` is already in your
+environment it is used; otherwise put a key in `~/.config/agent-bouncer/openrouter-key`.
+Run `agent-bouncer doctor` to check it. With no key it predicts from past runs.
+
+**Privacy:** with a key set, each job sends its command line, directory, the
+package.json script it runs, machine load and the commands and peak numbers of a
+few similar past runs to OpenRouter. `agent-bouncer predict --show -- <cmd>` prints it all. Set
 `AGENT_BOUNCER_MODEL=off`, or leave the key unset, to keep everything on the machine.
 
 Exit codes: the job's own, 75 busy or wait limit passed, 64 bad usage, 127 cannot

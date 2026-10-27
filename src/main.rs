@@ -19,6 +19,35 @@ struct Cli {
     command: Cmd,
 }
 
+/// What you, the one starting the job, expect it to take. You know what the job
+/// does better than any history, so the model gets this as one more clue.
+#[derive(clap::Args, Clone, Default)]
+struct Expect {
+    /// Your guess of the job's peak RAM, like 800mb or 4gb.
+    #[arg(long, value_parser = parse_mb_arg)]
+    expect_ram: Option<u64>,
+    /// Your guess of the CPU cores it will use at its busiest.
+    #[arg(long)]
+    expect_cores: Option<f64>,
+    /// Your guess of how long it runs, like 90s, 3m or 2h.
+    #[arg(long, value_parser = parse_secs_arg)]
+    expect_secs: Option<u64>,
+}
+
+fn parse_mb_arg(text: &str) -> Result<u64, String> {
+    predict::parse_mb(text).ok_or_else(|| "use a size like 800mb or 4gb".to_string())
+}
+
+fn parse_secs_arg(text: &str) -> Result<u64, String> {
+    predict::parse_secs(text).ok_or_else(|| "use a time like 90s, 3m or 2h".to_string())
+}
+
+impl Expect {
+    fn hint(&self) -> predict::Hint {
+        predict::Hint { ram_mb: self.expect_ram, cores: self.expect_cores.filter(|c| *c > 0.0), secs: self.expect_secs }
+    }
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// Run a command once a slot is free and the machine has room.
@@ -39,6 +68,8 @@ enum Cmd {
         /// Do not kill leftover processes of the job when it ends.
         #[arg(long)]
         no_reap: bool,
+        #[command(flatten)]
+        expect: Expect,
         #[arg(last = true, required = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
@@ -58,9 +89,16 @@ enum Cmd {
     },
     /// Show what a command is expected to need, without running it.
     Predict {
+        /// Print exactly what the model would be sent, then stop.
+        #[arg(long)]
+        show: bool,
+        #[command(flatten)]
+        expect: Expect,
         #[arg(last = true, required = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// Check that the model and its key work, with a real test call.
+    Doctor,
     /// Print the last events from the log as JSON lines.
     Log {
         #[arg(short, default_value_t = 20)]
@@ -71,13 +109,14 @@ enum Cmd {
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
-        Cmd::Run { wait, max_wait, weight, label, no_reap, command } => run::run(run::RunOpts {
+        Cmd::Run { wait, max_wait, weight, label, no_reap, expect, command } => run::run(run::RunOpts {
             command,
             wait: wait || max_wait.is_some(),
             max_wait_secs: max_wait.unwrap_or(1800),
             weight,
             label,
             reap: !no_reap,
+            hint: expect.hint(),
         }),
         Cmd::Status { json, cpu } => {
             let root = state::root();
@@ -101,14 +140,24 @@ fn main() {
             print!("{}", stats::render(&result, &since));
             0
         }
-        Cmd::Predict { command } => {
+        Cmd::Doctor => {
+            let (ok, text) = predict::doctor(&state::Settings::from_env());
+            println!("{text}");
+            if ok { 0 } else { 1 }
+        }
+        Cmd::Predict { show, expect, command } => {
             let root = state::root();
             let _ = state::ensure_dirs(&root);
             let settings = state::Settings::from_env();
             let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
             let running = status::running_jobs(&root, settings.slots).0;
-            let p = predict::predict(&root, &settings, None, &command.join(" "), &cwd, &running);
-            println!("{} MB, {:.1} cores ({})", p.ram_mb, p.cores, p.source);
+            let (cmd, hint) = (command.join(" "), expect.hint());
+            if show {
+                print!("{}", predict::show_prompt(&root, None, &cmd, &cwd, &running, &hint));
+            } else {
+                let p = predict::predict(&root, &settings, None, &cmd, &cwd, &running, &hint);
+                println!("{} MB, {:.1} cores ({})", p.ram_mb, p.cores, p.source);
+            }
             0
         }
         Cmd::Log { n } => {

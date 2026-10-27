@@ -77,10 +77,20 @@ fn is_locked(path: &Path) -> bool {
 }
 
 /// The jobs holding slots right now, and how many slots are held.
-pub fn running_jobs(root: &Path, slots: usize) -> (Vec<SlotInfo>, usize) {
+pub fn running_jobs(root: &Path, _slots: usize) -> (Vec<SlotInfo>, usize) {
     let mut running: Vec<SlotInfo> = Vec::new();
     let mut in_use = 0;
-    for i in 0..slots {
+    let existing = fs::read_dir(root.join("slots"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            name.strip_prefix("slot-")?.strip_suffix(".lock")?.parse::<usize>().ok()
+        })
+        .max()
+        .map_or(0, |top| top + 1);
+    for i in 0..existing {
         if !is_locked(&slot_lock_path(root, i)) {
             continue;
         }
@@ -125,7 +135,7 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
         .clamp(1, settings.slots);
     let est_free_ms = estimate_free_ms(root, concurrency, &running, &waiting, now_ms());
     Report {
-        slots_total: settings.slots,
+        slots_total: if settings.slots == UNCAPPED_SLOTS { 0 } else { settings.slots },
         slots_in_use: in_use,
         cores_committed: crate::headroom::committed_cores(&running),
         cores_total: settings.max_cores,

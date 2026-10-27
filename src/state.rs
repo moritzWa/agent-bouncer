@@ -25,10 +25,13 @@ pub struct Settings {
     pub model_timeout_secs: u64,
 }
 
+/// No limit on jobs at once: RAM, cores and load decide. Lock files are made as needed.
+pub const UNCAPPED_SLOTS: usize = 1 << 20;
+
 impl Settings {
     pub fn from_env() -> Self {
         let cores = crate::sysinfo::cores();
-        let default_slots = 32;
+        let default_slots = UNCAPPED_SLOTS;
         Settings {
             slots: env_parse("AGENT_BOUNCER_SLOTS")
                 .filter(|n: &usize| *n >= 1)
@@ -159,6 +162,13 @@ pub struct Event {
     pub est_cores: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub est_source: Option<String>,
+    /// What the agent that launched the job said it would need.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint_cores: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub leftover_mb: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
