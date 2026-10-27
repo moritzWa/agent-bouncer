@@ -27,10 +27,15 @@ pub struct Stats {
 const WAITED_MS: u64 = 1000;
 
 pub fn command_key(event: &Event) -> String {
-    if let Some(label) = &event.label {
-        return label.clone();
+    key_of(event.label.as_deref(), event.cmd.as_deref().unwrap_or_default())
+}
+
+/// Jobs with the same label, or the same first two words of the command, are
+/// treated as the same kind of job.
+pub fn key_of(label: Option<&str>, cmd: &str) -> String {
+    if let Some(label) = label {
+        return label.to_string();
     }
-    let cmd = event.cmd.clone().unwrap_or_default();
     let words: Vec<&str> = cmd.split_whitespace().take(2).collect();
     words
         .iter()

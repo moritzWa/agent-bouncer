@@ -14,6 +14,49 @@ pub struct Report {
     pub cpu_busy: Option<f64>,
     pub running: Vec<SlotInfo>,
     pub waiting: Vec<WaitInfo>,
+    /// Milliseconds until the queue is empty, guessed from how long the same
+    /// kinds of job took before. None without history for every job in it.
+    pub est_free_ms: Option<u64>,
+}
+
+/// When the last job should finish, if every job takes as long as it usually
+/// does: running jobs get what is left of their usual time, and each waiting
+/// job starts on the slot that frees up first.
+pub fn estimate_free_ms(
+    root: &Path,
+    slots: usize,
+    running: &[SlotInfo],
+    waiting: &[WaitInfo],
+    now: u64,
+) -> Option<u64> {
+    if running.is_empty() && waiting.is_empty() {
+        return None;
+    }
+    let mut durations: std::collections::HashMap<String, Vec<u64>> = Default::default();
+    for event in read_events(root) {
+        if let (true, Some(dur)) = (event.ev == "finish", event.dur_ms) {
+            durations.entry(crate::stats::command_key(&event)).or_default().push(dur);
+        }
+    }
+    let usual = |label: Option<&str>, cmd: &str| -> Option<u64> {
+        let mut list = durations.get(&crate::stats::key_of(label, cmd))?.clone();
+        list.sort_unstable();
+        Some(crate::stats::percentile(&list, 0.5))
+    };
+    let mut free_at: Vec<u64> = vec![0; slots.max(1)];
+    for (index, job) in running.iter().enumerate() {
+        let left = usual(job.label.as_deref(), &job.cmd)?
+            .saturating_sub(now.saturating_sub(job.started_ms));
+        if let Some(slot) = free_at.get_mut(index) {
+            *slot = left;
+        }
+    }
+    for job in waiting {
+        let duration = usual(job.label.as_deref(), &job.cmd)?;
+        let slot = free_at.iter_mut().min()?;
+        *slot += duration;
+    }
+    free_at.into_iter().max()
 }
 
 fn is_locked(path: &Path) -> bool {
@@ -58,6 +101,7 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
         }
     }
     let mem = sysinfo::memory();
+    let est_free_ms = estimate_free_ms(root, settings.slots, &running, &waiting, now_ms());
     Report {
         slots_total: settings.slots,
         slots_in_use: in_use,
@@ -66,6 +110,7 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
         cpu_busy: if with_cpu { sysinfo::cpu_busy_pct() } else { None },
         running,
         waiting,
+        est_free_ms,
     }
 }
 
@@ -129,4 +174,65 @@ pub fn render(report: &Report) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod estimate_tests {
+    use super::*;
+
+    fn slot(label: &str, started_ms: u64) -> SlotInfo {
+        SlotInfo {
+            job: label.into(),
+            pid: 1,
+            label: Some(label.into()),
+            cmd: "x".into(),
+            cwd: "/".into(),
+            started_ms,
+            weight: 1,
+            rss_mb: 0,
+        }
+    }
+
+    fn wait(label: &str) -> WaitInfo {
+        WaitInfo {
+            job: label.into(),
+            pid: 2,
+            label: Some(label.into()),
+            cmd: "x".into(),
+            cwd: "/".into(),
+            since_ms: 0,
+            weight: 1,
+            reason: "slots".into(),
+        }
+    }
+
+    fn history(root: &Path, finished: &[(&str, u64)]) {
+        let lines: String = finished
+            .iter()
+            .map(|(label, dur)| {
+                format!("{{\"ts\":1,\"ev\":\"finish\",\"job\":\"j\",\"label\":\"{label}\",\"dur_ms\":{dur}}}\n")
+            })
+            .collect();
+        fs::write(root.join("events.jsonl"), lines).unwrap();
+    }
+
+    #[test]
+    fn waiting_jobs_start_on_the_slot_that_frees_first() {
+        let dir = tempfile::tempdir().unwrap();
+        history(dir.path(), &[("a", 10_000), ("b", 30_000), ("c", 8_000)]);
+        let running = [slot("a", 0), slot("b", 0)];
+        let free = estimate_free_ms(dir.path(), 2, &running, &[wait("c")], 4_000);
+        // a ends in 6s, c then runs 8s there; b still has 26s.
+        assert_eq!(free, Some(26_000));
+        let free = estimate_free_ms(dir.path(), 2, &running, &[wait("c"), wait("c"), wait("c")], 4_000);
+        assert_eq!(free, Some(30_000));
+    }
+
+    #[test]
+    fn no_history_means_no_estimate() {
+        let dir = tempfile::tempdir().unwrap();
+        history(dir.path(), &[("a", 10_000)]);
+        assert_eq!(estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1), None);
+        assert_eq!(estimate_free_ms(dir.path(), 2, &[], &[], 1), None);
+    }
 }
