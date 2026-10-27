@@ -198,7 +198,7 @@ fn machine_check(
 fn explain(reason: &str) -> &'static str {
     match reason {
         "queue" => "other jobs are ahead in line",
-        "slots" => "all slots are in use",
+        "slots" => "the AGENT_BOUNCER_SLOTS cap is reached",
         "ram" => "free RAM is below the floor",
         "cpu" => "the CPU is saturated",
         "settle" => "the last job is still starting up",
@@ -259,7 +259,7 @@ pub fn run(opts: RunOpts) -> i32 {
     let settings = Settings::from_env();
     if opts.weight == 0 || opts.weight > settings.slots {
         eprintln!(
-            "agent-bouncer: --weight must be between 1 and the slot count ({})",
+            "agent-bouncer: --weight must be between 1 and the AGENT_BOUNCER_SLOTS cap ({})",
             settings.slots
         );
         return EXIT_USAGE;

@@ -60,7 +60,7 @@ fn exits_75_when_all_slots_are_taken() {
     wait_for(&marker);
     let out = run_output(dir.path(), 1, &["run", "--", "true"]);
     assert_eq!(out.status.code(), Some(75));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("all slots are in use"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("the AGENT_BOUNCER_SLOTS cap is reached"));
     holder.kill().ok();
     holder.wait().ok();
 }

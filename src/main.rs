@@ -50,7 +50,7 @@ impl Expect {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Run a command once a slot is free and the machine has room.
+    /// Run a command once the machine has room for it.
     /// Exits 75 when busy (or when the wait limit passes).
     Run {
         /// Wait in line instead of exiting 75 right away.
@@ -59,7 +59,7 @@ enum Cmd {
         /// Longest wait in seconds (implies --wait). 0 means no limit. Default 1800.
         #[arg(long)]
         max_wait: Option<u64>,
-        /// Slots this job takes (a heavy job can take several).
+        /// Counts as this many jobs against the optional AGENT_BOUNCER_SLOTS cap.
         #[arg(long, default_value_t = 1)]
         weight: usize,
         /// Name shown in status and stats instead of the command line.
@@ -73,7 +73,7 @@ enum Cmd {
         #[arg(last = true, required = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
-    /// Show slots, machine load, running jobs and the line.
+    /// Show machine load, running jobs and the line.
     Status {
         #[arg(long)]
         json: bool,

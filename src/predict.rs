@@ -203,7 +203,7 @@ so a queue can start jobs that fit together without freezing the machine. \
 ram_mb is peak resident memory in MB summed over every process the job starts. \
 cores is peak CPU in cores summed over every process the job starts (test runners and bundlers often start many workers). \
 Evidence, best first: similar_past_runs are measured and the closest ones matter most; notice when the same command used very different amounts in different folders or with different arguments. \
-project shows what the command expands to (script_body), how big the repo is and which worker or concurrency settings are in force. \
+project shows what the command expands to (script_body, and script_file for the first lines of a wrapper script it runs), how big the repo is and which worker or concurrency settings are in force. \
 machine and running_now show what is free. \
 requester_estimate, when present, is the launching agent's own guess: it knows what it is about to do, but its numbers are rough, so use it as a clue and prefer measurements. \
 For a command with no similar runs, judge from the tool and what it does. \
@@ -289,6 +289,9 @@ fn gather_context(cwd: &str, cmd: &str) -> Value {
     if let Some(body) = script_body(Path::new(cwd), cmd) {
         project.insert("script_body".into(), json!(clip(&body, 400)));
     }
+    if let Some((name, head)) = script_head(Path::new(cwd), cmd) {
+        project.insert("script_file".into(), json!({"path": name, "first_lines": head}));
+    }
     let markers: Vec<&str> = [
         "package.json",
         "Cargo.toml",
@@ -344,6 +347,44 @@ fn script_body(cwd: &Path, cmd: &str) -> Option<String> {
         let json: Value = serde_json::from_str(&text).ok()?;
         json.pointer("/scripts")?.get(name)?.as_str().map(String::from)
     })
+}
+
+/// The first lines of a wrapper script the command runs (`bash scripts/ci.sh`,
+/// `./test.sh`, or one named inside a package.json script). Comments and lines that
+/// look like they hold secrets are dropped, since the text goes to the model.
+fn script_head(cwd: &Path, cmd: &str) -> Option<(String, String)> {
+    const SECRET: [&str; 6] = ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL"];
+    let mut text = without_env_prefix(cmd);
+    if let Some(body) = script_body(cwd, cmd) {
+        text.push(' ');
+        text.push_str(&body);
+    }
+    let path = text.split_whitespace().find_map(|word| {
+        let word = word.trim_matches(|c| c == '"' || c == '\'' || c == ';');
+        let is_script = word.starts_with("./")
+            || [".sh", ".py", ".js", ".mjs", ".ts", ".rb"].iter().any(|ext| word.ends_with(ext));
+        if !is_script || word.starts_with('-') || word.contains('*') {
+            return None;
+        }
+        let full = cwd.join(word);
+        let meta = std::fs::metadata(&full).ok()?;
+        (meta.is_file() && meta.len() < 200_000).then_some((word.to_string(), full))
+    })?;
+    let content = std::fs::read_to_string(&path.1).ok()?;
+    let lines: Vec<&str> = content
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("//"))
+        .filter(|l| {
+            let upper = l.to_uppercase();
+            !SECRET.iter().any(|w| upper.contains(w))
+        })
+        .take(30)
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some((path.0, clip(&lines.join("\n"), 800)))
 }
 
 fn tracked_files(cwd: &str) -> Option<usize> {
@@ -585,6 +626,22 @@ mod tests {
             Some("bun run build && bun run test")
         );
         assert_eq!(script_body(dir.path(), "bun run nope"), None);
+    }
+
+    #[test]
+    fn reads_the_head_of_a_wrapper_script_without_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("scripts")).unwrap();
+        std::fs::write(
+            dir.path().join("scripts/ci.sh"),
+            "#!/bin/bash\n# comment\nexport API_TOKEN=abc\nset -e\nplaywright test --workers=8\n",
+        )
+        .unwrap();
+        let (name, head) = script_head(dir.path(), "bash scripts/ci.sh").unwrap();
+        assert_eq!(name, "scripts/ci.sh");
+        assert!(head.contains("playwright test --workers=8"));
+        assert!(!head.contains("abc") && !head.contains("comment"));
+        assert!(script_head(dir.path(), "bash scripts/missing.sh").is_none());
     }
 
     #[test]

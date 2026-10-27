@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 330" width="940" height="330" role="img" aria-label="Many agents, a bouncer gate, then the machine">
+  <style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}</style>
+  <rect width="940" height="330" fill="#fff"/>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5c5f77"/></marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d20f39"/></marker>
+  </defs>
+  <!-- agents -->
+  <text x="20" y="26" font-size="14" font-weight="600" fill="#5c5f77">AGENTS (each in its own terminal)</text>
+  <g font-size="13">
+    <rect x="20" y="40" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="64">agent A: cargo test</text>
+    <rect x="20" y="88" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="112">agent B: bun run ship</text>
+    <rect x="20" y="136" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="160">agent C: playwright</text>
+    <rect x="20" y="184" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="208">agent D: npm ci</text>
+    <rect x="20" y="232" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="256">agent E: go test</text>
+    <rect x="20" y="280" width="150" height="38" rx="10" fill="#f6f7fb" stroke="#dce0e8"/><text x="36" y="304">agent F: vitest</text>
+  </g>
+  <g stroke="#5c5f77" stroke-width="1.5" fill="none" marker-end="url(#a)">
+    <path d="M172 59 L330 150"/><path d="M172 107 L330 158"/><path d="M172 155 L330 166"/>
+    <path d="M172 203 L330 176"/><path d="M172 251 L330 184"/><path d="M172 299 L330 192"/>
+  </g>
+  <!-- bouncer -->
+  <rect x="332" y="110" width="150" height="110" rx="16" fill="#000"/>
+  <text x="407" y="148" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">agent-bouncer</text>
+  <text x="407" y="170" text-anchor="middle" font-size="12" fill="#cdd6f4">asks: does it fit?</text>
+  <text x="407" y="188" text-anchor="middle" font-size="12" fill="#cdd6f4">first come, first served</text>
+  <text x="407" y="206" text-anchor="middle" font-size="12" fill="#cdd6f4">never kills a running job</text>
+  <!-- in -->
+  <path d="M484 140 L660 140" stroke="#40a02b" stroke-width="3" fill="none" marker-end="url(#a)"/>
+  <text x="500" y="130" font-size="13" fill="#40a02b" font-weight="600">fits: runs now</text>
+  <!-- waiting -->
+  <path d="M484 190 L560 190 L560 262" stroke="#df8e1d" stroke-width="3" fill="none" marker-end="url(#a)"/>
+  <rect x="500" y="266" width="220" height="40" rx="10" fill="#fff8e8" stroke="#df8e1d"/>
+  <text x="610" y="291" text-anchor="middle" font-size="13" fill="#7a4f00">waits in line, in arrival order</text>
+  <!-- machine -->
+  <rect x="664" y="50" width="256" height="170" rx="16" fill="#f6f7fb" stroke="#dce0e8"/>
+  <text x="792" y="76" text-anchor="middle" font-size="14" font-weight="600">your Mac</text>
+  <text x="680" y="104" font-size="12" fill="#5c5f77">RAM</text>
+  <rect x="716" y="92" width="190" height="14" rx="7" fill="#e6e9ef"/><rect x="716" y="92" width="120" height="14" rx="7" fill="#1e66f5"/>
+  <text x="680" y="134" font-size="12" fill="#5c5f77">CPU</text>
+  <rect x="716" y="122" width="190" height="14" rx="7" fill="#e6e9ef"/><rect x="716" y="122" width="105" height="14" rx="7" fill="#8839ef"/>
+  <text x="680" y="164" font-size="12" fill="#5c5f77">load</text>
+  <rect x="716" y="152" width="190" height="14" rx="7" fill="#e6e9ef"/><rect x="716" y="152" width="80" height="14" rx="7" fill="#179299"/>
+  <text x="792" y="200" text-anchor="middle" font-size="12" fill="#40a02b" font-weight="600">stays responsive</text>
+  <!-- without -->
+  <text x="660" y="26" font-size="12" fill="#d20f39">without it: all six start at once and everything lags</text>
+</svg>

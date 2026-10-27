@@ -167,7 +167,7 @@
 
 <!-- ============ 3. PREDICTION ============ -->
 <h2><span class="num">3</span>How it predicts what a job needs</h2>
-<p>The same command can use <b>400 MB in one folder and 5 GB in another</b>, so a fixed cost table fails. A cheap model (<b>Gemini Flash Lite</b>, ~1 s, a fraction of a cent) reads <b>measured evidence</b> and returns <b>peak RAM and peak cores</b>. Inference is nearly free, so it is asked about <b>every new kind of job</b>.</p>
+<p>The same command can use <b>400 MB in one folder and 5 GB in another</b>, so a fixed cost table fails. Instead a cheap model (<b>Gemini Flash Lite</b>, about a second, a fraction of a cent) reads <b>measured evidence</b> and answers with the job's <b>peak RAM and peak cores</b>. Because that is nearly free, it is asked about every new kind of job.</p>
 <div class="fig">
 <svg viewBox="0 0 940 440" role="img" aria-label="Prediction decision flow">
   <defs>
@@ -224,84 +224,15 @@
 </div>
 <p class="cap"><b>Cache:</b> an answer is reused until a job of that kind <b>finishes and gives a new measurement</b>, so a burst of the same command costs one call. <b>Floor:</b> past runs of the same command <b>in the same folder</b> set a minimum; elsewhere only the lowest quarter does, so the model can be right that this run is small. A failed call marks the model down for a minute. The key goes to <code>curl</code> on stdin, not the process list.</p>
 
-<h2><span class="num">3b</span>What the model actually sees</h2>
-<p>This is the <b>real input</b> for <code>bun run ship</code> in <code>~/Code/arca</code>, captured on this Mac with <code>agent-bouncer predict --show</code>. Past runs are trimmed here from 15 to 4.</p>
-<div class="fig"><pre class="ctx">{
-  &quot;command&quot;: &quot;bun run ship&quot;,
-  &quot;cwd&quot;: &quot;/Users/m/Code/arca&quot;,
-  &quot;label&quot;: null,
-  &quot;machine&quot;: {
-    &quot;cores&quot;: 18,
-    &quot;free_ram_gb&quot;: 11.7,
-    &quot;load_1m&quot;: 29.7,
-    &quot;swap_used_gb&quot;: 3.7,
-    &quot;total_ram_gb&quot;: 48.0
-  },
-  &quot;project&quot;: {
-    &quot;files_present&quot;: [
-      &quot;package.json&quot;
-    ],
-    &quot;git_tracked_files&quot;: 24148,
-    &quot;script_body&quot;: &quot;bun run check:changed &amp;&amp; bun run guardrails:rules:test&quot;
-  },
-  &quot;running_now&quot;: [
-    {
-      &quot;command&quot;: &quot;sh -c bun run check &amp;&amp; git push origin fix/dashboard-navigation-performance&quot;,
-      &quot;expected_cores&quot;: 2.0,
-      &quot;expected_ram_mb&quot;: 3973
-    }
-  ],
-  &quot;similar_past_runs&quot;: [
-    {
-      &quot;command&quot;: &quot;bun run ship&quot;,
-      &quot;cwd&quot;: &quot;/Users/m/Code/arca-docker-docx&quot;,
-      &quot;days_ago&quot;: 0,
-      &quot;exit_code&quot;: 2,
-      &quot;peak_cores&quot;: 5.8,
-      &quot;peak_ram_mb&quot;: 4543,
-      &quot;seconds&quot;: 38
-    },
-    {
-      &quot;command&quot;: &quot;bun run ship&quot;,
-      &quot;cwd&quot;: &quot;/Users/m/Code/arca/.worktrees/meeting-notes-cores&quot;,
-      &quot;days_ago&quot;: 0,
-      &quot;exit_code&quot;: 1,
-      &quot;peak_cores&quot;: 8.9,
-      &quot;peak_ram_mb&quot;: 3623,
-      &quot;seconds&quot;: 197
-    },
-    {
-      &quot;command&quot;: &quot;bun run ship&quot;,
-      &quot;cwd&quot;: &quot;/Users/m/Code/arca/.worktrees/meeting-notes-cores&quot;,
-      &quot;days_ago&quot;: 0,
-      &quot;exit_code&quot;: 1,
-      &quot;peak_cores&quot;: 0.2,
-      &quot;peak_ram_mb&quot;: 3820,
-      &quot;seconds&quot;: 104
-    },
-    {
-      &quot;command&quot;: &quot;bun run ship&quot;,
-      &quot;cwd&quot;: &quot;/Users/m/Code/arca/.worktrees/meeting-notes-cores&quot;,
-      &quot;days_ago&quot;: 0,
-      &quot;exit_code&quot;: 1,
-      &quot;peak_cores&quot;: 10.3,
-      &quot;peak_ram_mb&quot;: 4468,
-      &quot;seconds&quot;: 77
-    },
-    &quot;... 11 more runs, same shape ...&quot;
-  ]
-}</pre></div>
+<p>What it is shown, in order of trust. See your own with <code>agent-bouncer predict --show -- &lt;command&gt;</code>.</p>
 <table>
   <tr><th>Clue</th><th>Why the model gets it</th></tr>
-  <tr><td><b>similar_past_runs</b></td><td><b>Measured</b> peaks of the closest runs, with folder, exit code and age. The strongest evidence.</td></tr>
-  <tr><td><b>script_body</b></td><td>What <code>bun run ship</code> expands to in package.json, so a new script is judged by what it runs.</td></tr>
+  <tr><td><b>similar_past_runs</b></td><td><b>Measured</b> peak RAM, peak cores and seconds of the 15 closest runs, with folder, exit code and age. The strongest evidence.</td></tr>
+  <tr><td><b>script_body, script_file</b></td><td>What <code>bun run ship</code> expands to in package.json, and the first lines of a wrapper script it runs (secret-looking lines removed), so a new script is judged by what it does.</td></tr>
   <tr><td><b>git_tracked_files</b></td><td>A 24k-file repo means bigger type-checks and bundles than a 200-file one.</td></tr>
-  <tr><td><b>machine</b></td><td>Cores, total and free RAM, load and swap: how much room there is <b>right now</b>.</td></tr>
-  <tr><td><b>running_now</b></td><td>What is already running and expected to grow, so the model knows what it competes with.</td></tr>
-  <tr><td><b>requester_estimate</b></td><td>Optional: the agent's own guess (<code>--expect-ram 4gb --expect-secs 3m</code>). It knows what it is about to do. Treated as <b>one clue</b>, below measurements.</td></tr>
+  <tr><td><b>machine, running_now</b></td><td>Cores, free RAM, load, and what is already running and still growing.</td></tr>
+  <tr><td><b>requester_estimate</b></td><td>Optional: the agent's own guess (<code>--expect-ram 4gb --expect-secs 3m</code>). One clue, below measurements.</td></tr>
 </table>
-<details><summary><b>System prompt</b></summary><pre class="ctx">You predict how much of a computer one shell job will use at its busiest, so a queue can start jobs that fit together without freezing the machine. ram_mb is peak resident memory in MB summed over every process the job starts. cores is peak CPU in cores summed over every process the job starts (test runners and bundlers often start many workers). Evidence, best first: similar_past_runs are measured and the closest ones matter most; notice when the same command used very different amounts in different folders or with different arguments. project shows what the command expands to (script_body), how big the repo is and which worker or concurrency settings are in force. machine and running_now show what is free. requester_estimate, when present, is the launching agent&#x27;s own guess: it knows what it is about to do, but its numbers are rough, so use it as a clue and prefer measurements. For a command with no similar runs, judge from the tool and what it does. Answer with JSON only: {&quot;ram_mb&quot;: integer, &quot;cores&quot;: number}.</pre></details>
-<p class="cap">Look at yours any time: <code>agent-bouncer predict --show -- &lt;command&gt;</code>.</p>
 
 <!-- ============ 4. ADMISSION ============ -->
 <h2><span class="num">4</span>How it decides: does it fit?</h2>
@@ -348,93 +279,12 @@
 </div>
 <p class="cap">"Free RAM" counts only free, purgeable and file-cache memory. Inactive app memory does not count as room, because reusing it means compressing or swapping it, which is what makes a Mac feel laggy.</p>
 
-<h3>The core budget, with numbers</h3>
-<div class="fig">
-<svg viewBox="0 0 940 130" role="img" aria-label="Core budget bar on an 18 core machine">
-  <g font-size="13">
-    <text x="20" y="24" font-weight="700">18 cores on this Mac. Each running job holds the cores it is expected to use.</text>
-    <rect x="20" y="36" width="900" height="40" rx="8" fill="#e6e9ef"/>
-    <rect x="20" y="36" width="350" height="40" rx="8" fill="#8839ef"/><text x="195" y="61" text-anchor="middle" fill="#fff" font-weight="600">job 1: 7 cores</text>
-    <rect x="370" y="36" width="150" height="40" fill="#1e66f5"/><text x="445" y="61" text-anchor="middle" fill="#fff" font-weight="600">job 2: 3</text>
-    <rect x="520" y="36" width="100" height="40" fill="#179299"/><text x="570" y="61" text-anchor="middle" fill="#fff" font-weight="600">job 3: 2</text>
-    <rect x="620" y="36" width="300" height="40" rx="0" fill="#fff" stroke="#d20f39" stroke-dasharray="5 4"/><text x="770" y="61" text-anchor="middle" fill="#d20f39" font-weight="600">new job wants 8: only 6 free, waits</text>
-    <text x="20" y="104" font-size="12" fill="#5c5f77">A job that spawns 20 test workers looks light until the load shows it. That is why cores are predicted and measured per job, not guessed from one slot.</text>
-  </g>
-</svg>
-</div>
+<p class="cap">Cores work the same way: each running job holds the cores it is expected to use, and a job that would push the total past the machine's core count waits.</p>
 
-<!-- ============ 5. STATE ON DISK ============ -->
-<h2><span class="num">5</span>What it keeps on disk</h2>
-<p><b>No server.</b> Processes share a small folder. The OS drops a file lock when its owner dies, so a <b>crashed job never leaks its place</b>.</p>
-<div class="fig">
-<svg viewBox="0 0 940 320" role="img" aria-label="State folder layout">
-  <g font-size="13">
-    <rect x="20" y="16" width="900" height="288" rx="14" fill="#f6f7fb" stroke="#dce0e8"/>
-    <text x="40" y="44" class="m" font-weight="700">~/.local/state/agent-bouncer/</text>
-    <g class="m" font-size="13">
-      <text x="64" y="76">waiting/</text><text x="250" y="76" font-family="-apple-system, sans-serif" fill="#5c5f77">one locked file per job in line; the oldest name is the head, and a dead waiter leaves on its own</text>
-      <text x="64" y="106">slots/</text><text x="250" y="106" font-family="-apple-system, sans-serif" fill="#5c5f77">slot-N.lock held by each running job (<tspan font-weight="700">weight</tspan> takes several), slot-N.json shows what it is and what it is expected to use</text>
-      <text x="64" y="136">events.jsonl</text><text x="250" y="136" font-family="-apple-system, sans-serif" fill="#5c5f77">the log of every job: waits, why it waited, peak RAM, peak cores, estimate vs real</text>
-      <text x="64" y="166">predict-cache/</text><text x="250" y="166" font-family="-apple-system, sans-serif" fill="#5c5f77">one file per command and folder: the last answer; dropped when a new measurement arrives</text>
-      <text x="64" y="196">last-admit</text><text x="250" y="196" font-family="-apple-system, sans-serif" fill="#5c5f77">when the last big job started, for the ramp-up pause</text>
-      <text x="64" y="226">model-down</text><text x="250" y="226" font-family="-apple-system, sans-serif" fill="#5c5f77">written after a failed model call; skips the model for a minute</text>
-    </g>
-    <text x="40" y="262" font-weight="700">Outside the folder</text>
-    <text x="64" y="284" class="m" font-size="13">~/.config/agent-bouncer/openrouter-key</text>
-    <text x="400" y="284" fill="#5c5f77">the API key (mode 600, never in the repo)</text>
-  </g>
-</svg>
-</div>
+<h2><span class="num">5</span>Where it is weak</h2>
+<p>There is <b>no server</b>: processes share a small folder of lock files, so a crashed job never leaks its place. Peak RAM is sampled every 2 seconds, so it misses short spikes and anything outside the job's process group (Docker, VMs). Peak cores need about 4 seconds of runtime. Early predictions are only as good as the history, and tools that skip the bouncer still load the machine. <a href="https://github.com/moritzWa/agentview">agentview</a> shows the queue above its input by reading <code>agent-bouncer status --json</code>, read-only.</p>
 
-<!-- ============ 6. AGENTVIEW ============ -->
-<h2><span class="num">6</span>How agentview shows it</h2>
-<div class="fig">
-<svg viewBox="0 0 940 210" role="img" aria-label="agentview reads status JSON and shows a panel">
-  <defs><marker id="e" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5c5f77"/></marker></defs>
-  <g font-size="13">
-    <rect x="20" y="40" width="230" height="120" rx="14" fill="#f6f7fb" stroke="#dce0e8"/>
-    <text x="135" y="68" text-anchor="middle" font-weight="700">agent-bouncer status</text>
-    <text x="135" y="92" text-anchor="middle" font-size="12" class="m">--json</text>
-    <text x="135" y="116" text-anchor="middle" font-size="12" fill="#5c5f77">running jobs, expected use,</text>
-    <text x="135" y="132" text-anchor="middle" font-size="12" fill="#5c5f77">the line, time until clear</text>
-    <path d="M252 100 L336 100" stroke="#5c5f77" stroke-width="2" fill="none" marker-end="url(#e)"/>
-    <text x="294" y="90" text-anchor="middle" font-size="12" fill="#5c5f77">read-only</text>
-    <rect x="340" y="20" width="580" height="160" rx="14" fill="#fff" stroke="#000"/>
-    <text x="360" y="48" font-weight="700">Heavy jobs <tspan fill="#5c5f77" font-weight="400">· all clear in ~4m</tspan></text>
-    <g class="m" font-size="12">
-      <text x="360" y="76" fill="#000">Running    12m08s   cargo test              ~/Code/agentview</text>
-      <text x="360" y="98" fill="#000">Running     4m30s   bun run ship            ~/Code/arca</text>
-      <text x="360" y="120" fill="#d20f39">Low RAM     3m52s   npm ci                  ~/Code/understand</text>
-      <text x="360" y="142" fill="#df8e1d">CPU busy       2s   playwright test         ~/Code/arca</text>
-    </g>
-    <text x="360" y="168" font-size="12" fill="#5c5f77">The panel sits above the input. Sessions stuck in line are marked as queued.</text>
-  </g>
-</svg>
-</div>
-
-<!-- ============ 7. DESIGN CHOICES ============ -->
-<h2><span class="num">7</span>Design choices, and where they are weak</h2>
-
-<h3>Changes since the first version</h3>
-<div class="why">
-  <b>No cap.</b> The slot count is gone. <b>RAM, cores and load</b> decide, and the lock files grow as needed. <code>AGENT_BOUNCER_SLOTS</code> is an optional hard cap.
-  <b style="margin-top:8px">Cache until a new measurement.</b> A clock is the wrong trigger. An answer is reused until a job of that kind finishes, with a 24 h backstop.
-  <b style="margin-top:8px">Scoped floor.</b> The 75th-percentile minimum applies to the <b>same command in the same folder</b>. Elsewhere only the lowest quarter of runs counts, so the model can say 500 MB for one small test file. Guessing high only costs a wait; guessing low can freeze the Mac, so the floor stays.
-  <b style="margin-top:8px">Agent hints.</b> <code>--expect-ram</code>, <code>--expect-cores</code> and <code>--expect-secs</code> add the launching agent's own guess as a clue.
-</div>
-<h3>Setup</h3>
-<div class="why"><b>Nothing to configure.</b> A key is read from <code>AGENT_BOUNCER_OPENROUTER_KEY</code>, then <code>~/.config/agent-bouncer/openrouter-key</code>, then <code>OPENROUTER_API_KEY</code>. <code>agent-bouncer doctor</code> makes a real test call. With no key it predicts from past runs.</div>
-
-<h3>What is measured, and what is a guess</h3>
-<table>
-  <tr><th>Thing</th><th>How it is known</th><th>Weak spot</th></tr>
-  <tr><td>Peak RAM of a job</td><td>Measured: the memory of the whole process group, every 2 seconds</td><td>Misses short spikes, and anything that leaves the group (Docker, VMs). Shared memory can count twice.</td></tr>
-  <tr><td>Peak cores of a job</td><td>Measured: CPU time used over 4-second windows</td><td>Jobs under about 4 seconds get no number. Finished child processes drop out of the count.</td></tr>
-  <tr><td>Prediction for a new job</td><td>The model, from the closest past runs</td><td>Only as good as the history. Core history starts empty, so early core guesses are the model's own.</td></tr>
-  <tr><td>Processes outside the queue</td><td>Not controlled</td><td>Test workers started by tools that do not go through the bouncer still load the machine. The load guard only reacts after the fact.</td></tr>
-</table>
-
-<p class="cap" style="margin-top:32px">Source: <code>~/Code/agent-bouncer</code>. Settings and the privacy note are in the README. Background on RAM, cores and load: <a href="computer-basics.html">computer-basics.html</a>.</p>
+<p class="cap" style="margin-top:32px">Settings and the privacy note are in the <a href="https://github.com/moritzWa/agent-bouncer#readme">README</a>. Background on RAM, cores and load: <a href="computer-basics.html">computer-basics.html</a>.</p>
 </main>
 </body>
 </html>
