@@ -1,0 +1,29 @@
+[package]
+name = "agent-bouncer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "A bouncer for your CPU and RAM: a first-come-first-served queue that lets only as many heavy jobs in as your machine can take, built for many parallel coding agents."
+license = "MIT"
+repository = "https://github.com/moritzWa/agent-bouncer"
+readme = "README.md"
+keywords = ["agents", "queue", "scheduler", "cli", "ai"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "agent-bouncer"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
