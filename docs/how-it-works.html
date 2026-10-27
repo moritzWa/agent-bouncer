@@ -284,7 +284,7 @@
 <h2><span class="num">5</span>Where it is weak</h2>
 <p>There is <b>no server</b>: processes share a small folder of lock files, so a crashed job never leaks its place. Peak RAM is sampled every 2 seconds, so it misses short spikes and anything outside the job's process group (Docker, VMs). Peak cores need about 4 seconds of runtime. Early predictions are only as good as the history, and tools that skip the bouncer still load the machine. <a href="https://github.com/moritzWa/agentview">agentview</a> shows the queue above its input by reading <code>agent-bouncer status --json</code>, read-only.</p>
 
-<p class="cap" style="margin-top:32px">Settings and the privacy note are in the <a href="https://github.com/moritzWa/agent-bouncer#readme">README</a>. Background on RAM, cores and load: <a href="computer-basics.html">computer-basics.html</a>.</p>
+<p class="cap" style="margin-top:32px">Settings and the privacy note are in the <a href="https://github.com/moritzWa/agent-bouncer#readme">README</a>.</p>
 </main>
 </body>
 </html>

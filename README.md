@@ -9,7 +9,7 @@ rest wait in line, first come, first served.
 
 <img src="docs/assets/overview.svg" alt="Six agents send jobs to agent-bouncer. Jobs that fit run on the machine now; the others wait in line in arrival order." width="800">
 
-**[How it works, with diagrams](https://moritzwa.github.io/agent-bouncer/how-it-works.html)** · [RAM, cores and load explained](https://moritzwa.github.io/agent-bouncer/computer-basics.html)
+**[How it works, with diagrams](https://moritzwa.github.io/agent-bouncer/how-it-works.html)**
 
 ```text
 $ agent-bouncer status
