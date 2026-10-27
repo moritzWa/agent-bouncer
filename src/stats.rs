@@ -30,18 +30,68 @@ pub fn command_key(event: &Event) -> String {
     key_of(event.label.as_deref(), event.cmd.as_deref().unwrap_or_default())
 }
 
-/// Jobs with the same label, or the same first two words of the command, are
-/// treated as the same kind of job.
+/// Jobs with the same label, or the same command once wrappers are stripped,
+/// are treated as the same kind of job.
 pub fn key_of(label: Option<&str>, cmd: &str) -> String {
     if let Some(label) = label {
         return label.to_string();
     }
-    let words: Vec<&str> = cmd.split_whitespace().take(2).collect();
-    words
+    let one_line = cmd.replace('\n', " ; ");
+    core_words(&one_line)
         .iter()
         .map(|w| w.rsplit('/').next().unwrap_or(w))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The first real command in a line: `env -u X A=1 fnm exec -- bash -c "cd a && bun run test x"`
+/// gives `bun run test`. Setup lines (`cd`, `set -e`, `export`) are skipped.
+fn core_words(cmd: &str) -> Vec<&str> {
+    let tokens: Vec<&str> = cmd.split_whitespace().collect();
+    let separator = |t: &str| matches!(t, "&&" | "||" | ";" | "|") || t.ends_with(';');
+    let mut i = 0;
+    let mut words: Vec<&str> = Vec::new();
+    while i < tokens.len() {
+        let token = tokens[i];
+        if separator(token) {
+            i += 1;
+            continue;
+        }
+        let is_assignment = token
+            .split_once('=')
+            .is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_'));
+        if is_assignment {
+            i += 1;
+        } else if token == "env" {
+            i += 1;
+            while i < tokens.len() && tokens[i].starts_with('-') {
+                i += if tokens[i] == "-u" { 2 } else { 1 };
+            }
+        } else if token == "fnm" && tokens.get(i + 1) == Some(&"exec") {
+            i += 2;
+            while i < tokens.len() && tokens[i] != "--" {
+                i += 1;
+            }
+            i += 1;
+        } else if matches!(token.rsplit('/').next(), Some("bash" | "sh" | "zsh"))
+            && tokens.get(i + 1).is_some_and(|t| t.starts_with('-') && t.ends_with('c'))
+        {
+            i += 2;
+        } else if matches!(token, "cd" | "set" | "export" | "source" | "." | "echo" | "unset" | "mkdir" | "true") {
+            while i < tokens.len() && !separator(tokens[i]) {
+                i += 1;
+            }
+        } else {
+            words.push(token);
+            i += 1;
+            while i < tokens.len() && words.len() < 3 && !separator(tokens[i]) && !tokens[i].starts_with('-') {
+                words.push(tokens[i]);
+                i += 1;
+            }
+            break;
+        }
+    }
+    words
 }
 
 pub fn aggregate(events: &[Event], since_ms: u64, day_of: &dyn Fn(u64) -> String) -> Stats {
@@ -242,5 +292,32 @@ mod tests {
         assert_eq!(parse_duration("7d"), Some(604_800_000));
         assert_eq!(parse_duration("x"), None);
         assert_eq!(parse_duration("m"), None);
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn wrappers_and_setup_lines_do_not_name_the_job() {
+        assert_eq!(key_of(None, "cargo test --lib"), "cargo test");
+        assert_eq!(
+            key_of(None, "env -u FORCE_COLOR NO_COLOR=1 PATH=/x/bin:/y bun run test:web:backend -- tests/a.ts"),
+            "bun run test:web:backend"
+        );
+        assert_eq!(
+            key_of(None, "fnm exec --using 24.1 -- bun run --cwd apps/web-start test"),
+            "bun run"
+        );
+        assert_eq!(
+            key_of(None, "bash -c set -e\nexport PATH=/a\ngo test -C services/x -count=1 ./..."),
+            "go test"
+        );
+        assert_eq!(
+            key_of(None, "bash -c cd apps/web && node scripts/test-components.mjs t.tsx"),
+            "node test-components.mjs t.tsx"
+        );
+        assert_eq!(key_of(Some("evals"), "anything"), "evals");
     }
 }

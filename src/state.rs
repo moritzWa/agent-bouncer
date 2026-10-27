@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,19 +13,22 @@ pub struct Settings {
     pub slots: usize,
     pub min_free_gb: f64,
     pub max_cpu_busy: f64,
+    /// Milliseconds a new job gets to ramp up before another starts beside it.
+    pub settle_ms: u64,
 }
 
 impl Settings {
     pub fn from_env() -> Self {
         let cores = crate::sysinfo::cores();
-        let default_slots = (cores / 6).clamp(2, 6);
+        let default_slots = (cores / 3).clamp(2, 8);
         Settings {
             slots: env_parse("AGENT_BOUNCER_SLOTS")
                 .filter(|n: &usize| *n >= 1)
                 .or_else(recorded_slots)
                 .unwrap_or(default_slots),
             min_free_gb: env_parse("AGENT_BOUNCER_MIN_FREE_GB").unwrap_or(3.0),
-            max_cpu_busy: env_parse("AGENT_BOUNCER_MAX_CPU").unwrap_or(95.0),
+            max_cpu_busy: env_parse("AGENT_BOUNCER_MAX_CPU").unwrap_or(90.0),
+            settle_ms: env_parse("AGENT_BOUNCER_SETTLE_MS").unwrap_or(3000),
         }
     }
 }
@@ -164,6 +167,28 @@ pub fn log_event(root: &Path, event: &Event) {
     }
 }
 
+/// The newest events only, so a long log does not slow every `status` call.
+pub fn read_recent_events(root: &Path) -> Vec<Event> {
+    const TAIL_BYTES: u64 = 4 * 1024 * 1024;
+    let mut out = Vec::new();
+    for name in ["events.1.jsonl", "events.jsonl"] {
+        let Ok(mut file) = File::open(root.join(name)) else { continue };
+        let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let start = len.saturating_sub(TAIL_BYTES);
+        if start > 0 && file.seek(SeekFrom::Start(start)).is_err() {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        if file.read_to_end(&mut bytes).is_err() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let skip = usize::from(start > 0);
+        out.extend(text.lines().skip(skip).filter_map(|l| serde_json::from_str::<Event>(l).ok()));
+    }
+    out
+}
+
 pub fn read_events(root: &Path) -> Vec<Event> {
     let mut out = Vec::new();
     for name in ["events.1.jsonl", "events.jsonl"] {
@@ -185,6 +210,9 @@ pub struct SlotInfo {
     pub weight: usize,
     #[serde(default)]
     pub rss_mb: u64,
+    /// What the job is expected to peak at, from how much the same kind of job used before.
+    #[serde(default)]
+    pub est_peak_mb: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

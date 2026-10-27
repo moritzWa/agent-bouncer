@@ -140,14 +140,36 @@ fn try_acquire(root: &Path, slots: usize, weight: usize) -> Option<Vec<(usize, F
     (held.len() == weight).then_some(held)
 }
 
-fn machine_check(settings: &Settings) -> Result<Snapshot, (&'static str, Snapshot)> {
+fn last_admit_path(root: &Path) -> PathBuf {
+    root.join("last-admit")
+}
+
+fn settling(root: &Path, settle_ms: u64) -> bool {
+    fs::metadata(last_admit_path(root))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < Duration::from_millis(settle_ms))
+}
+
+fn machine_check(
+    root: &Path,
+    settings: &Settings,
+    predicted_mb: u64,
+) -> Result<Snapshot, (&'static str, Snapshot)> {
     let mut snap = Snapshot::default();
+    let (running, _) = crate::status::running_jobs(root, settings.slots);
+    let others_running = !running.is_empty();
     if let Some(mem) = sysinfo::memory() {
         snap.avail_gb = Some(mem.avail_gb);
         snap.swap_gb = Some(mem.swap_used_gb);
-        if mem.avail_gb < settings.min_free_gb {
+        let reserved = crate::headroom::reserved_mb(&running);
+        if !crate::headroom::fits(mem.avail_gb, settings.min_free_gb, reserved, predicted_mb, others_running) {
             return Err(("ram", snap));
         }
+    }
+    if others_running && settling(root, settings.settle_ms) {
+        return Err(("settle", snap));
     }
     if settings.max_cpu_busy < 100.0 {
         if let Some(cpu) = sysinfo::cpu_busy_pct() {
@@ -166,6 +188,7 @@ fn explain(reason: &str) -> &'static str {
         "slots" => "all slots are in use",
         "ram" => "free RAM is below the floor",
         "cpu" => "the CPU is saturated",
+        "settle" => "the last job is still starting up",
         _ => "busy",
     }
 }
@@ -268,6 +291,7 @@ pub fn run(opts: RunOpts) -> i32 {
     };
     log_event(&root, &event("enqueue"));
 
+    let predicted_mb = crate::headroom::History::load(&root).predict_mb(opts.label.as_deref(), &cmd_text);
     let started = Instant::now();
     let mut last_tick = Instant::now();
     let mut blocked: BTreeMap<String, u64> = BTreeMap::new();
@@ -290,7 +314,7 @@ pub fn run(opts: RunOpts) -> i32 {
         } else {
             match try_acquire(&root, settings.slots, opts.weight) {
                 None => Err("slots"),
-                Some(held) => match machine_check(&settings) {
+                Some(held) => match machine_check(&root, &settings, predicted_mb) {
                     Ok(s) => Ok((held, s)),
                     Err((why, s)) => {
                         snap = s;
@@ -334,7 +358,6 @@ pub fn run(opts: RunOpts) -> i32 {
     };
 
     let wait_ms = started.elapsed().as_millis() as u64;
-    drop(waiter);
 
     let mut info = SlotInfo {
         job: job.clone(),
@@ -345,8 +368,11 @@ pub fn run(opts: RunOpts) -> i32 {
         started_ms: now_ms(),
         weight: opts.weight,
         rss_mb: 0,
+        est_peak_mb: predicted_mb,
     };
     write_slots(&root, &held, &info);
+    write_atomic(&last_admit_path(&root), b"");
+    drop(waiter);
 
     let mut admit = event("admit");
     admit.wait_ms = Some(wait_ms);

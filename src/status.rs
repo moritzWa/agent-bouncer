@@ -15,7 +15,8 @@ pub struct Report {
     pub running: Vec<SlotInfo>,
     pub waiting: Vec<WaitInfo>,
     /// Milliseconds until the queue is empty, guessed from how long the same
-    /// kinds of job took before. None without history for every job in it.
+    /// kinds of job took before, or how long jobs usually take for a kind it
+    /// has not seen. None only when nothing has ever finished.
     pub est_free_ms: Option<u64>,
 }
 
@@ -33,13 +34,22 @@ pub fn estimate_free_ms(
         return None;
     }
     let mut durations: std::collections::HashMap<String, Vec<u64>> = Default::default();
-    for event in read_events(root) {
+    for event in read_recent_events(root) {
         if let (true, Some(dur)) = (event.ev == "finish", event.dur_ms) {
             durations.entry(crate::stats::command_key(&event)).or_default().push(dur);
         }
     }
+    let mut everything: Vec<u64> = durations.values().flatten().copied().collect();
+    everything.sort_unstable();
+    if everything.is_empty() {
+        return None;
+    }
+    let typical = crate::stats::percentile(&everything, 0.5);
     let usual = |label: Option<&str>, cmd: &str| -> Option<u64> {
-        let mut list = durations.get(&crate::stats::key_of(label, cmd))?.clone();
+        let Some(list) = durations.get(&crate::stats::key_of(label, cmd)) else {
+            return Some(typical);
+        };
+        let mut list = list.clone();
         list.sort_unstable();
         Some(crate::stats::percentile(&list, 0.5))
     };
@@ -64,10 +74,11 @@ fn is_locked(path: &Path) -> bool {
     !flock(&file, libc::LOCK_SH | libc::LOCK_NB)
 }
 
-pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
+/// The jobs holding slots right now, and how many slots are held.
+pub fn running_jobs(root: &Path, slots: usize) -> (Vec<SlotInfo>, usize) {
     let mut running: Vec<SlotInfo> = Vec::new();
     let mut in_use = 0;
-    for i in 0..settings.slots {
+    for i in 0..slots {
         if !is_locked(&slot_lock_path(root, i)) {
             continue;
         }
@@ -81,6 +92,11 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
             }
         }
     }
+    (running, in_use)
+}
+
+pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
+    let (running, in_use) = running_jobs(root, settings.slots);
     let mut waiting: Vec<WaitInfo> = Vec::new();
     if let Ok(entries) = fs::read_dir(root.join("waiting")) {
         let mut names: Vec<String> = entries
@@ -190,6 +206,7 @@ mod estimate_tests {
             started_ms,
             weight: 1,
             rss_mb: 0,
+            est_peak_mb: 0,
         }
     }
 
@@ -229,10 +246,11 @@ mod estimate_tests {
     }
 
     #[test]
-    fn no_history_means_no_estimate() {
+    fn unknown_jobs_take_the_typical_time_and_no_history_means_no_estimate() {
         let dir = tempfile::tempdir().unwrap();
-        history(dir.path(), &[("a", 10_000)]);
         assert_eq!(estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1), None);
+        history(dir.path(), &[("a", 10_000)]);
+        assert_eq!(estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1_000), Some(9_000));
         assert_eq!(estimate_free_ms(dir.path(), 2, &[], &[], 1), None);
     }
 }

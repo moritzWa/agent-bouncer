@@ -49,8 +49,13 @@ agent-bouncer log -n 50       # raw events as JSON lines
 - **First come, first served.** Waiters are admitted in arrival order. A waiter
   that dies leaves the line on its own.
 - **Admission by what the machine has.** A job starts only when a slot is free,
-  free RAM is above a floor, and the CPU is not saturated. Both are measured
-  now, not from a one-minute load average that stays high after a job ends.
+  the CPU is not saturated, and free RAM stays above a floor even after every
+  running job reaches the peak it usually hits. A small job slips in beside big
+  ones; a heavy one waits for room. The estimate is the 90th percentile of past
+  runs of the same kind of command (1.5 GB for one it has never seen). Free RAM
+  and CPU are measured now, not from a one-minute load average that stays high
+  after a job ends. A new job also gets a few seconds to ramp up before the
+  next one starts beside it.
 - **Cleans up after jobs.** Each job runs in its own process group. When it ends,
   whatever it left running (dev servers, headless browsers) is stopped.
   `--no-reap` turns that off.
@@ -65,9 +70,10 @@ agent-bouncer log -n 50       # raw events as JSON lines
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_BOUNCER_SLOTS` | cores / 6, between 2 and 6 | Heavy jobs at once |
+| `AGENT_BOUNCER_SLOTS` | cores / 3, between 2 and 8 | Most heavy jobs at once (RAM and CPU usually limit it first) |
 | `AGENT_BOUNCER_MIN_FREE_GB` | 3 | Free RAM floor for admitting a job |
-| `AGENT_BOUNCER_MAX_CPU` | 95 | Busy CPU percent above which no job is admitted (100 turns the check off) |
+| `AGENT_BOUNCER_SETTLE_MS` | 3000 | Time a new job gets to ramp up before another starts beside it |
+| `AGENT_BOUNCER_MAX_CPU` | 90 | Busy CPU percent above which no job is admitted (100 turns the check off) |
 | `AGENT_BOUNCER_DIR` | `~/.local/state/agent-bouncer` | State and event log |
 
 Exit codes: the job's own, 75 busy or wait limit passed, 64 bad usage, 127 cannot
