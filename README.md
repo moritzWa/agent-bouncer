@@ -1,7 +1,10 @@
 # agent-bouncer
 
-A bouncer for your CPU and RAM. Many coding agents run builds, test suites and
-evals on one machine. This lets only as many in as the machine can take. The
+Stop your computer from freezing when too many agents run at once.
+
+Ten coding agents each start a build, a test suite or a headless browser, and
+the machine runs out of RAM and grinds to a halt. agent-bouncer is a bouncer for
+your CPU and RAM: it lets only as many heavy jobs in as the machine can take. The
 rest wait in line, first come, first served.
 
 ```text
