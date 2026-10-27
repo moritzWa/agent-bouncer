@@ -140,6 +140,9 @@ fn try_acquire(root: &Path, slots: usize, weight: usize) -> Option<Vec<(usize, F
     (held.len() == weight).then_some(held)
 }
 
+/// Jobs expected to stay under this need no ramp-up time before the next one starts.
+const LIGHT_JOB_MB: u64 = 300;
+
 fn last_admit_path(root: &Path) -> PathBuf {
     root.join("last-admit")
 }
@@ -168,7 +171,7 @@ fn machine_check(
             return Err(("ram", snap));
         }
     }
-    if others_running && settling(root, settings.settle_ms) {
+    if others_running && predicted_mb >= LIGHT_JOB_MB && settling(root, settings.settle_ms) {
         return Err(("settle", snap));
     }
     if settings.max_cpu_busy < 100.0 {

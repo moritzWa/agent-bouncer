@@ -28,7 +28,7 @@ impl Settings {
                 .unwrap_or(default_slots),
             min_free_gb: env_parse("AGENT_BOUNCER_MIN_FREE_GB").unwrap_or(3.0),
             max_cpu_busy: env_parse("AGENT_BOUNCER_MAX_CPU").unwrap_or(90.0),
-            settle_ms: env_parse("AGENT_BOUNCER_SETTLE_MS").unwrap_or(3000),
+            settle_ms: env_parse("AGENT_BOUNCER_SETTLE_MS").unwrap_or(2000),
         }
     }
 }
