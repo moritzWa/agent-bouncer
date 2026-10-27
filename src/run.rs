@@ -231,6 +231,7 @@ pub fn run(opts: RunOpts) -> i32 {
         eprintln!("agent-bouncer: cannot create {}: {err}", root.display());
         return 1;
     }
+    record_slots(&root, settings.slots);
     install_signal_handlers();
 
     let pid = std::process::id();

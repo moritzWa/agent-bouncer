@@ -20,10 +20,26 @@ impl Settings {
         let cores = crate::sysinfo::cores();
         let default_slots = (cores / 6).clamp(2, 6);
         Settings {
-            slots: env_parse("AGENT_BOUNCER_SLOTS").filter(|n: &usize| *n >= 1).unwrap_or(default_slots),
+            slots: env_parse("AGENT_BOUNCER_SLOTS")
+                .filter(|n: &usize| *n >= 1)
+                .or_else(recorded_slots)
+                .unwrap_or(default_slots),
             min_free_gb: env_parse("AGENT_BOUNCER_MIN_FREE_GB").unwrap_or(3.0),
             max_cpu_busy: env_parse("AGENT_BOUNCER_MAX_CPU").unwrap_or(95.0),
         }
+    }
+}
+
+fn recorded_slots() -> Option<usize> {
+    let text = fs::read_to_string(root().join("slot-count")).ok()?;
+    text.trim().parse().ok().filter(|n| *n >= 1)
+}
+
+/// Remember the slot count a job ran with, so `status` run from another shell
+/// shows the same total even without the environment variable.
+pub fn record_slots(root: &Path, slots: usize) {
+    if std::env::var_os("AGENT_BOUNCER_SLOTS").is_some() {
+        write_atomic(&root.join("slot-count"), slots.to_string().as_bytes());
     }
 }
 

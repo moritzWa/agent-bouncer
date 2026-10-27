@@ -16,6 +16,11 @@ waiting
   1.  0m31s   cargo clippy   ~/Code/agentview   (all slots are in use)
 ```
 
+[agentview](https://github.com/moritzWa/agentview) shows the queue in its header,
+marks sessions stuck in line, and opens it with `/queue`:
+
+<img src="docs/assets/agentview-queue.gif" alt="agentview with two jobs running and two waiting in agent-bouncer's queue, then the /queue popup, then a slot freeing up" width="800">
+
 No daemon. It uses file locks and a small state folder, so nothing runs in the
 background and a crashed job can never leak a slot.
 
