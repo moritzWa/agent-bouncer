@@ -1,4 +1,5 @@
 mod headroom;
+mod predict;
 mod run;
 mod state;
 mod stats;
@@ -55,6 +56,11 @@ enum Cmd {
         #[arg(long, default_value = "7d")]
         since: String,
     },
+    /// Show what a command is expected to need, without running it.
+    Predict {
+        #[arg(last = true, required = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
     /// Print the last events from the log as JSON lines.
     Log {
         #[arg(short, default_value_t = 20)]
@@ -93,6 +99,16 @@ fn main() {
             let from = state::now_ms().saturating_sub(window_ms);
             let result = stats::aggregate(&events, from, &state::local_day);
             print!("{}", stats::render(&result, &since));
+            0
+        }
+        Cmd::Predict { command } => {
+            let root = state::root();
+            let _ = state::ensure_dirs(&root);
+            let settings = state::Settings::from_env();
+            let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+            let running = status::running_jobs(&root, settings.slots).0;
+            let p = predict::predict(&root, &settings, None, &command.join(" "), &cwd, &running);
+            println!("{} MB, {:.1} cores ({})", p.ram_mb, p.cores, p.source);
             0
         }
         Cmd::Log { n } => {

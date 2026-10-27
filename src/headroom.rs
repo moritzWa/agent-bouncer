@@ -3,12 +3,15 @@ use crate::stats;
 use std::collections::HashMap;
 
 /// What to expect from a kind of job that has never run here before.
-const UNKNOWN_MB: u64 = 1500;
+pub const UNKNOWN_MB: u64 = 1500;
+pub const UNKNOWN_CORES: f64 = 2.0;
 const MIN_MB: u64 = 200;
+const MIN_CORES: f64 = 0.5;
 
-/// How much memory each kind of job has peaked at before.
+/// How much memory and CPU each kind of job has peaked at before.
 pub struct History {
     peaks: HashMap<String, Vec<u64>>,
+    cores: HashMap<String, Vec<f64>>,
 }
 
 impl History {
@@ -18,15 +21,23 @@ impl History {
 
     pub fn from_events(events: &[Event]) -> Self {
         let mut peaks: HashMap<String, Vec<u64>> = HashMap::new();
+        let mut cores: HashMap<String, Vec<f64>> = HashMap::new();
         for event in events.iter().filter(|e| e.ev == "finish") {
+            let key = stats::command_key(event);
             if let Some(peak) = event.peak_rss_mb {
-                peaks.entry(stats::command_key(event)).or_default().push(peak);
+                peaks.entry(key.clone()).or_default().push(peak);
+            }
+            if let Some(used) = event.peak_cores {
+                cores.entry(key).or_default().push(used);
             }
         }
         for list in peaks.values_mut() {
             list.sort_unstable();
         }
-        History { peaks }
+        for list in cores.values_mut() {
+            list.sort_by(|a, b| a.total_cmp(b));
+        }
+        History { peaks, cores }
     }
 
     /// The 90th percentile of what this kind of job peaked at, so most runs fit.
@@ -36,6 +47,52 @@ impl History {
             None => UNKNOWN_MB,
         }
     }
+
+    pub fn predict_cores(&self, label: Option<&str>, cmd: &str) -> f64 {
+        match self.cores.get(&stats::key_of(label, cmd)) {
+            Some(list) => percentile_f(list, 0.9).max(MIN_CORES),
+            None => UNKNOWN_CORES,
+        }
+    }
+
+    /// What three or more past runs of this kind of job mostly stayed under (the 75th
+    /// percentile), so a low guess from the model cannot go below what really happened.
+    pub fn typical(&self, label: Option<&str>, cmd: &str) -> Option<(u64, Option<f64>)> {
+        let key = stats::key_of(label, cmd);
+        let ram = self.peaks.get(&key).filter(|l| l.len() >= 3)?;
+        let cores = self.cores.get(&key).filter(|l| l.len() >= 3).map(|l| percentile_f(l, 0.75));
+        Some((stats::percentile(ram, 0.75), cores))
+    }
+
+    pub fn knows(&self, label: Option<&str>, cmd: &str) -> bool {
+        self.peaks.contains_key(&stats::key_of(label, cmd))
+    }
+
+    /// Cores a job usually takes, across everything seen. For guessing how many run at once.
+    pub fn typical_cores(&self) -> f64 {
+        let mut all: Vec<f64> = self.cores.values().flatten().copied().collect();
+        if all.is_empty() {
+            return UNKNOWN_CORES;
+        }
+        all.sort_by(|a, b| a.total_cmp(b));
+        percentile_f(&all, 0.5).max(MIN_CORES)
+    }
+}
+
+fn percentile_f(sorted: &[f64], p: f64) -> f64 {
+    let index = ((sorted.len() - 1) as f64 * p).round() as usize;
+    sorted[index.min(sorted.len() - 1)]
+}
+
+/// Cores the running jobs are expected to use at their busiest.
+pub fn committed_cores(running: &[SlotInfo]) -> f64 {
+    running.iter().map(|job| job.est_cores).sum()
+}
+
+/// Whether a job expected to use `predicted` cores fits beside the running ones.
+/// With nothing running it always does, so a job wider than the machine still runs.
+pub fn cores_fit(max_cores: f64, committed: f64, predicted: f64, others_running: bool) -> bool {
+    !others_running || committed + predicted <= max_cores
 }
 
 /// Memory the running jobs are still expected to grow into.
@@ -77,6 +134,7 @@ mod tests {
             weight: 1,
             rss_mb: rss,
             est_peak_mb: est,
+            est_cores: 0.0,
         }
     }
 
@@ -88,6 +146,18 @@ mod tests {
         assert_eq!(history.predict_mb(None, "pnpm build"), UNKNOWN_MB);
         let tiny = History::from_events(&[finished("echo-ish thing", 0)]);
         assert_eq!(tiny.predict_mb(None, "echo-ish thing"), MIN_MB);
+    }
+
+    #[test]
+    fn cores_are_a_budget_but_never_block_an_idle_machine() {
+        assert!(cores_fit(18.0, 10.0, 8.0, true));
+        assert!(!cores_fit(18.0, 10.0, 8.5, true));
+        assert!(cores_fit(18.0, 0.0, 40.0, false));
+        let mut done = finished("cargo test", 900);
+        done.peak_cores = Some(6.0);
+        let history = History::from_events(&[done]);
+        assert_eq!(history.predict_cores(None, "cargo test"), 6.0);
+        assert_eq!(history.predict_cores(None, "other"), UNKNOWN_CORES);
     }
 
     #[test]

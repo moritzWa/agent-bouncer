@@ -158,7 +158,7 @@ fn settling(root: &Path, settle_ms: u64) -> bool {
 fn machine_check(
     root: &Path,
     settings: &Settings,
-    predicted_mb: u64,
+    pred: &crate::predict::Prediction,
 ) -> Result<Snapshot, (&'static str, Snapshot)> {
     let mut snap = Snapshot::default();
     let (running, _) = crate::status::running_jobs(root, settings.slots);
@@ -167,9 +167,12 @@ fn machine_check(
         snap.avail_gb = Some(mem.avail_gb);
         snap.swap_gb = Some(mem.swap_used_gb);
         let reserved = crate::headroom::reserved_mb(&running);
-        if !crate::headroom::fits(mem.avail_gb, settings.min_free_gb, reserved, predicted_mb, others_running) {
+        if !crate::headroom::fits(mem.avail_gb, settings.min_free_gb, reserved, pred.ram_mb, others_running) {
             return Err(("ram", snap));
         }
+    }
+    if !crate::headroom::cores_fit(settings.max_cores, crate::headroom::committed_cores(&running), pred.cores, others_running) {
+        return Err(("cores", snap));
     }
     if others_running && settings.max_load_per_core > 0.0 {
         let limit = settings.max_load_per_core * sysinfo::cores() as f64;
@@ -177,7 +180,7 @@ fn machine_check(
             return Err(("load", snap));
         }
     }
-    if others_running && predicted_mb >= LIGHT_JOB_MB && settling(root, settings.settle_ms) {
+    if others_running && pred.ram_mb >= LIGHT_JOB_MB && settling(root, settings.settle_ms) {
         return Err(("settle", snap));
     }
     if settings.max_cpu_busy < 100.0 {
@@ -198,6 +201,7 @@ fn explain(reason: &str) -> &'static str {
         "ram" => "free RAM is below the floor",
         "cpu" => "the CPU is saturated",
         "settle" => "the last job is still starting up",
+        "cores" => "the running jobs are already expected to use all the CPU cores",
         "load" => "the machine is overloaded",
         _ => "busy",
     }
@@ -271,6 +275,8 @@ pub fn run(opts: RunOpts) -> i32 {
     let job = format!("{:x}-{pid}", now_ms());
     let cmd_text = opts.command.join(" ");
     let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+    let running_now = crate::status::running_jobs(&root, settings.slots).0;
+    let pred = crate::predict::predict(&root, &settings, opts.label.as_deref(), &cmd_text, &cwd, &running_now);
     let mut waiter = match Waiter::create(
         &root,
         WaitInfo {
@@ -301,7 +307,6 @@ pub fn run(opts: RunOpts) -> i32 {
     };
     log_event(&root, &event("enqueue"));
 
-    let predicted_mb = crate::headroom::History::load(&root).predict_mb(opts.label.as_deref(), &cmd_text);
     let started = Instant::now();
     let mut last_tick = Instant::now();
     let mut blocked: BTreeMap<String, u64> = BTreeMap::new();
@@ -324,7 +329,7 @@ pub fn run(opts: RunOpts) -> i32 {
         } else {
             match try_acquire(&root, settings.slots, opts.weight) {
                 None => Err("slots"),
-                Some(held) => match machine_check(&root, &settings, predicted_mb) {
+                Some(held) => match machine_check(&root, &settings, &pred) {
                     Ok(s) => Ok((held, s)),
                     Err((why, s)) => {
                         snap = s;
@@ -378,7 +383,8 @@ pub fn run(opts: RunOpts) -> i32 {
         started_ms: now_ms(),
         weight: opts.weight,
         rss_mb: 0,
-        est_peak_mb: predicted_mb,
+        est_peak_mb: pred.ram_mb,
+        est_cores: pred.cores,
     };
     write_slots(&root, &held, &info);
     write_atomic(&last_admit_path(&root), b"");
@@ -390,6 +396,9 @@ pub fn run(opts: RunOpts) -> i32 {
     admit.avail_gb = admit_snap.avail_gb;
     admit.swap_gb = admit_snap.swap_gb;
     admit.cpu_busy = admit_snap.cpu;
+    admit.est_mb = Some(pred.ram_mb);
+    admit.est_cores = Some(pred.cores);
+    admit.est_source = Some(pred.source.to_string());
     log_event(&root, &admit);
 
     let fds: Vec<i32> = held.iter().map(|(_, f)| f.as_raw_fd()).collect();
@@ -425,6 +434,8 @@ pub fn run(opts: RunOpts) -> i32 {
 
     let pgid = child.id() as i32;
     let mut peak: u64 = 0;
+    let mut peak_cores: f64 = 0.0;
+    let mut cpu_ref: Option<(f64, Instant)> = None;
     let mut last_sample = Instant::now() - Duration::from_millis(1500);
     let mut signalled: Option<Instant> = None;
     let status = loop {
@@ -447,10 +458,20 @@ pub fn run(opts: RunOpts) -> i32 {
         }
         if last_sample.elapsed() >= Duration::from_secs(2) {
             last_sample = Instant::now();
-            if let Some(mb) = sysinfo::group_rss_mb(pgid) {
-                peak = peak.max(mb);
-                info.rss_mb = mb;
+            if let Some(usage) = sysinfo::group_usage(pgid) {
+                peak = peak.max(usage.rss_mb);
+                info.rss_mb = usage.rss_mb;
                 write_slots(&root, &held, &info);
+                // CPU time ticks in whole seconds on some systems, so measure over 4 s windows.
+                match cpu_ref {
+                    None => cpu_ref = Some((usage.cpu_secs, Instant::now())),
+                    Some((cpu, at)) if at.elapsed() >= Duration::from_secs(4) => {
+                        let cores = (usage.cpu_secs - cpu).max(0.0) / at.elapsed().as_secs_f64();
+                        peak_cores = peak_cores.max(cores);
+                        cpu_ref = Some((usage.cpu_secs, Instant::now()));
+                    }
+                    Some(_) => {}
+                }
             }
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -465,6 +486,7 @@ pub fn run(opts: RunOpts) -> i32 {
     fin.dur_ms = Some(run_started.elapsed().as_millis() as u64);
     fin.exit = Some(code);
     fin.peak_rss_mb = Some(peak);
+    fin.peak_cores = (peak_cores > 0.0).then(|| (peak_cores * 10.0).round() / 10.0);
     fin.leftover_mb = leftover;
     log_event(&root, &fin);
     if opts.reap || leftover.is_none() {

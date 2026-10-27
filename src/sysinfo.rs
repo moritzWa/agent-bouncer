@@ -154,6 +154,42 @@ pub fn parse_meminfo(text: &str) -> Option<Memory> {
     })
 }
 
+/// Memory now and CPU time used so far, summed over a process group.
+pub struct GroupUsage {
+    pub rss_mb: u64,
+    pub cpu_secs: f64,
+}
+
+pub fn group_usage(pgid: i32) -> Option<GroupUsage> {
+    let out = run("ps", &["-axo", "pgid=,rss=,time="])?;
+    let mut usage = GroupUsage { rss_mb: 0, cpu_secs: 0.0 };
+    let mut kb = 0u64;
+    for line in out.lines() {
+        let mut it = line.split_whitespace();
+        let (Some(group), Some(rss), Some(time)) = (it.next(), it.next(), it.next()) else { continue };
+        if group.parse::<i32>().ok() != Some(pgid) {
+            continue;
+        }
+        kb += rss.parse::<u64>().unwrap_or(0);
+        usage.cpu_secs += parse_cpu_time(time).unwrap_or(0.0);
+    }
+    usage.rss_mb = kb / 1024;
+    Some(usage)
+}
+
+/// `ps` CPU time: `1:02.50`, `01:02:03` or `2-01:02:03`.
+pub fn parse_cpu_time(text: &str) -> Option<f64> {
+    let (days, rest) = match text.split_once('-') {
+        Some((d, r)) => (d.parse::<f64>().ok()?, r),
+        None => (0.0, text),
+    };
+    let mut secs = 0.0;
+    for part in rest.split(':') {
+        secs = secs * 60.0 + part.parse::<f64>().ok()?;
+    }
+    Some(days * 86_400.0 + secs)
+}
+
 pub fn group_rss_mb(pgid: i32) -> Option<u64> {
     let out = run("ps", &["-axo", "pgid=,rss="])?;
     let kb: u64 = out
@@ -185,6 +221,14 @@ mod tests {
         let text = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 100.\nPages inactive: 5000.\nPages speculative: 10.\nPages purgeable: 20.\nFile-backed pages: 300.\n";
         let gb = parse_vm_stat(text).unwrap();
         assert!((gb - 430.0 * 16384.0 / GB).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parses_ps_cpu_time() {
+        assert_eq!(parse_cpu_time("0:01.50"), Some(1.5));
+        assert_eq!(parse_cpu_time("01:02:03"), Some(3723.0));
+        assert_eq!(parse_cpu_time("2-00:00:10"), Some(172_810.0));
+        assert_eq!(parse_cpu_time("x"), None);
     }
 
     #[test]

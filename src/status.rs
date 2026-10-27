@@ -9,6 +9,8 @@ use std::path::Path;
 pub struct Report {
     pub slots_total: usize,
     pub slots_in_use: usize,
+    pub cores_committed: f64,
+    pub cores_total: f64,
     pub avail_gb: Option<f64>,
     pub swap_gb: Option<f64>,
     pub cpu_busy: Option<f64>,
@@ -117,10 +119,16 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
         }
     }
     let mem = sysinfo::memory();
-    let est_free_ms = estimate_free_ms(root, settings.slots, &running, &waiting, now_ms());
+    let per_job = crate::headroom::History::load(root).typical_cores();
+    let concurrency = ((settings.max_cores / per_job).round() as usize)
+        .max(running.len())
+        .clamp(1, settings.slots);
+    let est_free_ms = estimate_free_ms(root, concurrency, &running, &waiting, now_ms());
     Report {
         slots_total: settings.slots,
         slots_in_use: in_use,
+        cores_committed: crate::headroom::committed_cores(&running),
+        cores_total: settings.max_cores,
         avail_gb: mem.map(|m| m.avail_gb),
         swap_gb: mem.map(|m| m.swap_used_gb),
         cpu_busy: if with_cpu { sysinfo::cpu_busy_pct() } else { None },
@@ -152,9 +160,10 @@ pub fn render(report: &Report) -> String {
         machine.push(format!("CPU {v:.0}%"));
     }
     out.push_str(&format!(
-        "slots {}/{} in use   {}\n",
-        report.slots_in_use,
-        report.slots_total,
+        "{} running   cores {:.0}/{:.0} expected   {}\n",
+        report.running.len(),
+        report.cores_committed,
+        report.cores_total,
         machine.join("   ")
     ));
     let now = now_ms();
@@ -166,10 +175,11 @@ pub fn render(report: &Report) -> String {
         for job in &report.running {
             let name = job.label.clone().unwrap_or_else(|| shorten(&job.cmd, 48));
             out.push_str(&format!(
-                "  {:>7}  {:>8}  weight {}  {}  ({})\n",
+                "  {:>7}  {:>8} of ~{:<8} {:>4.1} cores  {}  ({})\n",
                 fmt_dur(now.saturating_sub(job.started_ms)),
                 fmt_mb(job.rss_mb),
-                job.weight,
+                fmt_mb(job.est_peak_mb),
+                job.est_cores,
                 name,
                 shorten(&job.cwd, 40)
             ));
@@ -207,6 +217,7 @@ mod estimate_tests {
             weight: 1,
             rss_mb: 0,
             est_peak_mb: 0,
+            est_cores: 0.0,
         }
     }
 

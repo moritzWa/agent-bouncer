@@ -17,12 +17,18 @@ pub struct Settings {
     pub settle_ms: u64,
     /// One-minute load average, per core, above which no job is let in beside a running one.
     pub max_load_per_core: f64,
+    /// CPU cores the running jobs may be expected to use together.
+    pub max_cores: f64,
+    /// OpenRouter model that predicts a job's RAM and cores. None turns it off.
+    pub model: Option<String>,
+    /// Seconds to wait for the model before using what past runs say.
+    pub model_timeout_secs: u64,
 }
 
 impl Settings {
     pub fn from_env() -> Self {
         let cores = crate::sysinfo::cores();
-        let default_slots = (cores / 3).clamp(2, 8);
+        let default_slots = 32;
         Settings {
             slots: env_parse("AGENT_BOUNCER_SLOTS")
                 .filter(|n: &usize| *n >= 1)
@@ -32,6 +38,13 @@ impl Settings {
             max_cpu_busy: env_parse("AGENT_BOUNCER_MAX_CPU").unwrap_or(90.0),
             settle_ms: env_parse("AGENT_BOUNCER_SETTLE_MS").unwrap_or(2000),
             max_load_per_core: env_parse("AGENT_BOUNCER_MAX_LOAD").unwrap_or(1.5),
+            max_cores: env_parse("AGENT_BOUNCER_MAX_CORES").unwrap_or(cores as f64),
+            model: match std::env::var("AGENT_BOUNCER_MODEL") {
+                Ok(v) if matches!(v.trim(), "" | "off" | "none") => None,
+                Ok(v) => Some(v.trim().to_string()),
+                Err(_) => Some("google/gemini-3.1-flash-lite".to_string()),
+            },
+            model_timeout_secs: env_parse("AGENT_BOUNCER_MODEL_TIMEOUT").unwrap_or(6),
         }
     }
 }
@@ -139,6 +152,14 @@ pub struct Event {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peak_rss_mb: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak_cores: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub est_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub est_cores: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub est_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub leftover_mb: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -216,6 +237,9 @@ pub struct SlotInfo {
     /// What the job is expected to peak at, from how much the same kind of job used before.
     #[serde(default)]
     pub est_peak_mb: u64,
+    /// CPU cores the job is expected to use at its busiest.
+    #[serde(default)]
+    pub est_cores: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

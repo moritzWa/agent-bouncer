@@ -9,14 +9,14 @@ rest wait in line, first come, first served.
 
 ```text
 $ agent-bouncer status
-slots 2/3 in use   free RAM 9.4 GB   swap 3.7 GB   CPU 41%
+2 running   cores 10/18 expected   free RAM 9.4 GB   swap 3.7 GB   CPU 41%
 
 running
-  slot 0   4m12s   2.1 GB   cargo test            ~/Code/agentview
-  slot 1   0m48s   5.3 GB   pnpm playwright test  ~/Code/arca
+   4m12s   2.1 GB of ~2.4 GB   3.0 cores  cargo test            ~/Code/agentview
+    48s    1.1 GB of ~5.3 GB   7.0 cores  pnpm playwright test  ~/Code/arca
 
 waiting
-  1.  0m31s   cargo clippy   ~/Code/agentview   (all slots are in use)
+  1.  0m31s   cargo build --release   ~/Code/agentview   (the running jobs are already expected to use all the CPU cores)
 ```
 
 [agentview](https://github.com/moritzWa/agentview) lists the queue above its input and marks sessions stuck in line:
@@ -24,13 +24,13 @@ waiting
 <img src="docs/assets/agentview-queue.gif" alt="agentview with a panel above the input listing two running and two waiting jobs and when the queue should clear" width="800">
 
 No daemon. It uses file locks and a small state folder, so nothing runs in the
-background and a crashed job can never leak a slot.
+background and a crashed job can never leak a lock.
 
 ## Use
 
 ```sh
 agent-bouncer run --wait -- cargo test
-agent-bouncer run --wait --weight 2 -- pnpm playwright test   # takes two slots
+agent-bouncer run --wait -- pnpm playwright test
 agent-bouncer run --max-wait 600 --label evals -- ./run-evals.sh
 ```
 
@@ -39,7 +39,8 @@ Without `--wait` it exits 75 straight away when busy. With `--wait` it queues.
 never).
 
 ```sh
-agent-bouncer status          # slots, machine load, running jobs, the line
+agent-bouncer status          # machine load, running jobs, the line
+agent-bouncer predict -- cargo test   # what it expects a command to need
 agent-bouncer stats --since 7d  # waits, refusals, heaviest commands
 agent-bouncer log -n 50       # raw events as JSON lines
 ```
@@ -48,14 +49,19 @@ agent-bouncer log -n 50       # raw events as JSON lines
 
 - **First come, first served.** Waiters are admitted in arrival order. A waiter
   that dies leaves the line on its own.
-- **Admission by what the machine has.** A job starts only when a slot is free,
-  the CPU is not saturated, and free RAM stays above a floor even after every
-  running job reaches the peak it usually hits. A small job slips in beside big
-  ones; a heavy one waits for room. The estimate is the 90th percentile of past
-  runs of the same kind of command (1.5 GB for one it has never seen). Free RAM
-  and CPU are measured now, not from a one-minute load average that stays high
-  after a job ends. A new job also gets a few seconds to ramp up before the
-  next one starts beside it.
+- **No slot count. Jobs are admitted by what they need.** Before a job starts, a
+  small, cheap model (Gemini Flash Lite through OpenRouter, about a second and a
+  fraction of a cent) predicts its peak RAM and CPU cores. It is shown the
+  command, the directory, and what the closest past runs actually used, which the
+  bouncer measures for every job. A job starts when free RAM stays above a floor
+  and the cores fit, counting what every running job is still expected to grow
+  into. A small job slips in beside big ones; a heavy one waits for room. The
+  answer is cached for an hour per command and directory, never goes below what
+  past runs of the same command mostly used, and falls back to those past runs
+  (or 1.5 GB and 2 cores for a command it has never seen) when there is no key or
+  no answer in time. Free RAM and CPU are measured now, not from a one-minute
+  load average that stays high after a job ends. A new job also gets a few seconds
+  to ramp up before the next one starts beside it.
 - **Cleans up after jobs.** Each job runs in its own process group. When it ends,
   whatever it left running (dev servers, headless browsers) is stopped.
   `--no-reap` turns that off.
@@ -70,12 +76,20 @@ agent-bouncer log -n 50       # raw events as JSON lines
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_BOUNCER_SLOTS` | cores / 3, between 2 and 8 | Most heavy jobs at once (RAM and CPU usually limit it first) |
+| `AGENT_BOUNCER_MODEL` | `google/gemini-3.1-flash-lite` | OpenRouter model that predicts a job's RAM and cores (`off` uses past runs only) |
+| `AGENT_BOUNCER_OPENROUTER_KEY` | | Key for it. Also read from `~/.config/agent-bouncer/openrouter-key`, then `OPENROUTER_API_KEY` |
+| `AGENT_BOUNCER_MODEL_TIMEOUT` | 6 | Seconds to wait for the model before using past runs |
+| `AGENT_BOUNCER_MAX_CORES` | all cores | Cores the running jobs may be expected to use together |
+| `AGENT_BOUNCER_SLOTS` | 32 | Hard cap on jobs at once; `--weight N` takes N of them |
 | `AGENT_BOUNCER_MIN_FREE_GB` | 3 | Free RAM floor for admitting a job |
 | `AGENT_BOUNCER_SETTLE_MS` | 2000 | Time a new job gets to ramp up before another starts beside it |
 | `AGENT_BOUNCER_MAX_LOAD` | 1.5 | One-minute load average per core above which no job starts beside a running one (0 turns it off) |
 | `AGENT_BOUNCER_MAX_CPU` | 90 | Busy CPU percent above which no job is admitted (100 turns the check off) |
 | `AGENT_BOUNCER_DIR` | `~/.local/state/agent-bouncer` | State and event log |
+
+**Privacy:** with a key set, each new kind of job sends its command line, directory
+and the commands and peak numbers of a few similar past runs to OpenRouter. Set
+`AGENT_BOUNCER_MODEL=off`, or leave the key unset, to keep everything on the machine.
 
 Exit codes: the job's own, 75 busy or wait limit passed, 64 bad usage, 127 cannot
 run the command, 128+N when stopped by signal N.
