@@ -27,7 +27,10 @@ pub struct Stats {
 const WAITED_MS: u64 = 1000;
 
 pub fn command_key(event: &Event) -> String {
-    key_of(event.label.as_deref(), event.cmd.as_deref().unwrap_or_default())
+    key_of(
+        event.label.as_deref(),
+        event.cmd.as_deref().unwrap_or_default(),
+    )
 }
 
 /// Jobs with the same label, or the same command once wrappers are stripped,
@@ -57,9 +60,9 @@ fn core_words(cmd: &str) -> Vec<&str> {
             i += 1;
             continue;
         }
-        let is_assignment = token
-            .split_once('=')
-            .is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_'));
+        let is_assignment = token.split_once('=').is_some_and(|(name, _)| {
+            !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        });
         if is_assignment {
             i += 1;
         } else if token == "env" {
@@ -74,17 +77,26 @@ fn core_words(cmd: &str) -> Vec<&str> {
             }
             i += 1;
         } else if matches!(token.rsplit('/').next(), Some("bash" | "sh" | "zsh"))
-            && tokens.get(i + 1).is_some_and(|t| t.starts_with('-') && t.ends_with('c'))
+            && tokens
+                .get(i + 1)
+                .is_some_and(|t| t.starts_with('-') && t.ends_with('c'))
         {
             i += 2;
-        } else if matches!(token, "cd" | "set" | "export" | "source" | "." | "echo" | "unset" | "mkdir" | "true") {
+        } else if matches!(
+            token,
+            "cd" | "set" | "export" | "source" | "." | "echo" | "unset" | "mkdir" | "true"
+        ) {
             while i < tokens.len() && !separator(tokens[i]) {
                 i += 1;
             }
         } else {
             words.push(token);
             i += 1;
-            while i < tokens.len() && words.len() < 3 && !separator(tokens[i]) && !tokens[i].starts_with('-') {
+            while i < tokens.len()
+                && words.len() < 3
+                && !separator(tokens[i])
+                && !tokens[i].starts_with('-')
+            {
                 words.push(tokens[i]);
                 i += 1;
             }
@@ -177,7 +189,9 @@ pub fn render(stats: &Stats, window: &str) -> String {
         out.push_str("no jobs recorded in this window\n");
         return out;
     }
-    let pct = (100 * stats.waited_jobs).checked_div(stats.admitted).unwrap_or(0);
+    let pct = (100 * stats.waited_jobs)
+        .checked_div(stats.admitted)
+        .unwrap_or(0);
     out.push_str(&format!(
         "jobs run      {}   total run time {}\n",
         stats.finished,
@@ -204,7 +218,10 @@ pub fn render(stats: &Stats, window: &str) -> String {
         out.push_str(&format!("blocked by    {}\n", parts.join("   ")));
     }
     if stats.timeouts > 0 {
-        out.push_str(&format!("gave up       {} jobs hit their wait limit\n", stats.timeouts));
+        out.push_str(&format!(
+            "gave up       {} jobs hit their wait limit\n",
+            stats.timeouts
+        ));
     }
     if stats.leftover_jobs > 0 {
         out.push_str(&format!(
@@ -239,7 +256,12 @@ mod tests {
     use super::*;
 
     fn ev(name: &str, ts: u64) -> Event {
-        Event { ts, ev: name.into(), job: "j".into(), ..Default::default() }
+        Event {
+            ts,
+            ev: name.into(),
+            job: "j".into(),
+            ..Default::default()
+        }
     }
 
     fn day(ts: u64) -> String {
@@ -250,7 +272,10 @@ mod tests {
     fn aggregates_waits_blocks_and_peaks() {
         let mut a = ev("admit", 1_000);
         a.wait_ms = Some(5_000);
-        a.blocked_ms = Some(BTreeMap::from([("slots".to_string(), 4_000), ("ram".to_string(), 1_000)]));
+        a.blocked_ms = Some(BTreeMap::from([
+            ("slots".to_string(), 4_000),
+            ("ram".to_string(), 1_000),
+        ]));
         let mut b = ev("admit", 2_000);
         b.wait_ms = Some(200);
         let mut t = ev("timeout", 3_000);
@@ -307,15 +332,24 @@ mod key_tests {
             "bun run test:web:backend"
         );
         assert_eq!(
-            key_of(None, "fnm exec --using 24.1 -- bun run --cwd apps/web-start test"),
+            key_of(
+                None,
+                "fnm exec --using 24.1 -- bun run --cwd apps/web-start test"
+            ),
             "bun run"
         );
         assert_eq!(
-            key_of(None, "bash -c set -e\nexport PATH=/a\ngo test -C services/x -count=1 ./..."),
+            key_of(
+                None,
+                "bash -c set -e\nexport PATH=/a\ngo test -C services/x -count=1 ./..."
+            ),
             "go test"
         );
         assert_eq!(
-            key_of(None, "bash -c cd apps/web && node scripts/test-components.mjs t.tsx"),
+            key_of(
+                None,
+                "bash -c cd apps/web && node scripts/test-components.mjs t.tsx"
+            ),
             "node test-components.mjs t.tsx"
         );
         assert_eq!(key_of(Some("evals"), "anything"), "evals");

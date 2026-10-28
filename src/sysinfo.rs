@@ -24,7 +24,10 @@ pub fn memory() -> Option<Memory> {
         let swap_used_gb = run("sysctl", &["-n", "vm.swapusage"])
             .and_then(|s| parse_swapusage(&s))
             .unwrap_or(0.0);
-        Some(Memory { avail_gb, swap_used_gb })
+        Some(Memory {
+            avail_gb,
+            swap_used_gb,
+        })
     } else {
         let info = std::fs::read_to_string("/proc/meminfo").ok()?;
         parse_meminfo(&info)
@@ -37,7 +40,13 @@ pub fn total_ram_gb() -> Option<f64> {
         Some(bytes / GB)
     } else {
         let info = std::fs::read_to_string("/proc/meminfo").ok()?;
-        let kb: f64 = info.lines().find_map(|l| l.strip_prefix("MemTotal:"))?.split_whitespace().next()?.parse().ok()?;
+        let kb: f64 = info
+            .lines()
+            .find_map(|l| l.strip_prefix("MemTotal:"))?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()?;
         Some(kb * 1024.0 / GB)
     }
 }
@@ -63,7 +72,9 @@ pub fn cpu_busy_pct() -> Option<f64> {
 
 #[cfg(target_os = "macos")]
 fn cpu_ticks() -> Option<(u64, u64)> {
-    let mut info = libc::host_cpu_load_info { cpu_ticks: [0; libc::CPU_STATE_MAX as usize] };
+    let mut info = libc::host_cpu_load_info {
+        cpu_ticks: [0; libc::CPU_STATE_MAX as usize],
+    };
     let mut count = libc::HOST_CPU_LOAD_INFO_COUNT;
     #[allow(deprecated)]
     let rc = unsafe {
@@ -87,14 +98,20 @@ fn cpu_ticks() -> Option<(u64, u64)> {
 }
 
 pub fn cores() -> usize {
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
 }
 
 #[cfg(not(target_os = "macos"))]
 fn read_proc_stat() -> Option<(u64, u64)> {
     let text = std::fs::read_to_string("/proc/stat").ok()?;
     let line = text.lines().next()?;
-    let nums: Vec<u64> = line.split_whitespace().skip(1).filter_map(|v| v.parse().ok()).collect();
+    let nums: Vec<u64> = line
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|v| v.parse().ok())
+        .collect();
     if nums.len() < 5 {
         return None;
     }
@@ -116,8 +133,12 @@ pub fn parse_vm_stat(text: &str) -> Option<f64> {
     let mut file_backed = None;
     let mut seen = false;
     for line in text.lines() {
-        let Some((key, value)) = line.split_once(':') else { continue };
-        let Ok(v) = value.trim().trim_end_matches('.').parse::<f64>() else { continue };
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let Ok(v) = value.trim().trim_end_matches('.').parse::<f64>() else {
+            continue;
+        };
         match key.trim() {
             "Pages free" | "Pages speculative" | "Pages purgeable" => {
                 reclaimable += v;
@@ -141,7 +162,12 @@ pub fn swapped_out_mb() -> Option<f64> {
         parse_swapouts(&run("vm_stat", &[])?)
     } else {
         let info = std::fs::read_to_string("/proc/vmstat").ok()?;
-        let pages: f64 = info.lines().find_map(|l| l.strip_prefix("pswpout "))?.trim().parse().ok()?;
+        let pages: f64 = info
+            .lines()
+            .find_map(|l| l.strip_prefix("pswpout "))?
+            .trim()
+            .parse()
+            .ok()?;
         Some(pages * 4096.0 / (1024.0 * 1024.0))
     }
 }
@@ -165,7 +191,8 @@ pub fn parse_swapouts(text: &str) -> Option<f64> {
     Some(pages * page / (1024.0 * 1024.0))
 }
 
-static LAST_SWAPOUT: std::sync::Mutex<Option<(std::time::Instant, f64)>> = std::sync::Mutex::new(None);
+static LAST_SWAPOUT: std::sync::Mutex<Option<(std::time::Instant, f64)>> =
+    std::sync::Mutex::new(None);
 
 /// MB per second written to swap since the last look. Swap that is merely full is old
 /// news; swap that is being written right now means the machine is short of RAM.
@@ -173,7 +200,12 @@ pub fn swapout_rate_mb_s() -> Option<f64> {
     let now = (std::time::Instant::now(), swapped_out_mb()?);
     let previous = LAST_SWAPOUT.lock().ok()?.replace(now);
     let (then, before) = match previous {
-        Some(p) if p.0.elapsed() < Duration::from_secs(5) && now.0.duration_since(p.0) >= Duration::from_millis(200) => p,
+        Some(p)
+            if p.0.elapsed() < Duration::from_secs(5)
+                && now.0.duration_since(p.0) >= Duration::from_millis(200) =>
+        {
+            p
+        }
         _ => {
             std::thread::sleep(Duration::from_millis(300));
             let again = (std::time::Instant::now(), swapped_out_mb()?);
@@ -227,11 +259,16 @@ pub struct GroupUsage {
 
 pub fn group_usage(pgid: i32) -> Option<GroupUsage> {
     let out = run("ps", &["-axo", "pgid=,rss=,time="])?;
-    let mut usage = GroupUsage { rss_mb: 0, cpu_secs: 0.0 };
+    let mut usage = GroupUsage {
+        rss_mb: 0,
+        cpu_secs: 0.0,
+    };
     let mut kb = 0u64;
     for line in out.lines() {
         let mut it = line.split_whitespace();
-        let (Some(group), Some(rss), Some(time)) = (it.next(), it.next(), it.next()) else { continue };
+        let (Some(group), Some(rss), Some(time)) = (it.next(), it.next(), it.next()) else {
+            continue;
+        };
         if group.parse::<i32>().ok() != Some(pgid) {
             continue;
         }

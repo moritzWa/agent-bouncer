@@ -32,7 +32,11 @@ fn spawn(dir: &Path, slots: usize, args: &[&str]) -> Child {
 fn wait_for(path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !path.exists() {
-        assert!(Instant::now() < deadline, "timed out waiting for {}", path.display());
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {}",
+            path.display()
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -44,7 +48,10 @@ fn passes_through_exit_code_and_logs() {
     assert_eq!(out.status.code(), Some(7));
     let log = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
     for ev in ["enqueue", "admit", "finish"] {
-        assert!(log.contains(&format!("\"ev\":\"{ev}\"")), "missing {ev} in {log}");
+        assert!(
+            log.contains(&format!("\"ev\":\"{ev}\"")),
+            "missing {ev} in {log}"
+        );
     }
     assert!(log.contains("\"exit\":7"));
 }
@@ -56,7 +63,13 @@ fn exits_75_when_all_slots_are_taken() {
     let mut holder = spawn(
         dir.path(),
         1,
-        &["run", "--", "sh", "-c", &format!("touch {}; sleep 3", marker.display())],
+        &[
+            "run",
+            "--",
+            "sh",
+            "-c",
+            &format!("touch {}; sleep 3", marker.display()),
+        ],
     );
     wait_for(&marker);
     let out = run_output(dir.path(), 1, &["run", "--", "true"]);
@@ -74,20 +87,41 @@ fn waiters_are_admitted_in_arrival_order() {
     let mut holder = spawn(
         dir.path(),
         1,
-        &["run", "--", "sh", "-c", &format!("touch {}; sleep 2", marker.display())],
+        &[
+            "run",
+            "--",
+            "sh",
+            "-c",
+            &format!("touch {}; sleep 2", marker.display()),
+        ],
     );
     wait_for(&marker);
     let append = |name: &str| format!("echo {name} >> {}", order.display());
-    let mut first = spawn(dir.path(), 1, &["run", "--wait", "--", "sh", "-c", &append("first")]);
+    let mut first = spawn(
+        dir.path(),
+        1,
+        &["run", "--wait", "--", "sh", "-c", &append("first")],
+    );
     std::thread::sleep(Duration::from_millis(300));
-    let mut second = spawn(dir.path(), 1, &["run", "--wait", "--", "sh", "-c", &append("second")]);
+    let mut second = spawn(
+        dir.path(),
+        1,
+        &["run", "--wait", "--", "sh", "-c", &append("second")],
+    );
     std::thread::sleep(Duration::from_millis(300));
-    let mut third = spawn(dir.path(), 1, &["run", "--wait", "--", "sh", "-c", &append("third")]);
+    let mut third = spawn(
+        dir.path(),
+        1,
+        &["run", "--wait", "--", "sh", "-c", &append("third")],
+    );
     for child in [&mut first, &mut second, &mut third, &mut holder] {
         assert!(child.wait().unwrap().success());
     }
     let text = std::fs::read_to_string(&order).unwrap();
-    assert_eq!(text.lines().collect::<Vec<_>>(), ["first", "second", "third"]);
+    assert_eq!(
+        text.lines().collect::<Vec<_>>(),
+        ["first", "second", "third"]
+    );
 }
 
 #[test]
@@ -97,7 +131,15 @@ fn weight_takes_several_slots() {
     let mut heavy = spawn(
         dir.path(),
         2,
-        &["run", "--weight", "2", "--", "sh", "-c", &format!("touch {}; sleep 3", marker.display())],
+        &[
+            "run",
+            "--weight",
+            "2",
+            "--",
+            "sh",
+            "-c",
+            &format!("touch {}; sleep 3", marker.display()),
+        ],
     );
     wait_for(&marker);
     let out = run_output(dir.path(), 2, &["run", "--", "true"]);
@@ -120,7 +162,13 @@ fn max_wait_gives_up_with_75() {
     let mut holder = spawn(
         dir.path(),
         1,
-        &["run", "--", "sh", "-c", &format!("touch {}; sleep 4", marker.display())],
+        &[
+            "run",
+            "--",
+            "sh",
+            "-c",
+            &format!("touch {}; sleep 4", marker.display()),
+        ],
     );
     wait_for(&marker);
     let started = Instant::now();
@@ -147,7 +195,11 @@ fn leftover_daemons_are_reaped_when_the_job_ends() {
     let script = format!("sleep 60 & echo $! > {}", pidfile.display());
     let out = run_output(dir.path(), 1, &["run", "--", "sh", "-c", &script]);
     assert_eq!(out.status.code(), Some(0));
-    let pid: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+    let pid: i32 = std::fs::read_to_string(&pidfile)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(100));

@@ -55,7 +55,12 @@ impl Waiter {
             .truncate(false)
             .open(dir.join(format!("{name}.lock")))?;
         flock(&lock, libc::LOCK_EX);
-        let waiter = Waiter { dir, name, _lock: lock, info };
+        let waiter = Waiter {
+            dir,
+            name,
+            _lock: lock,
+            info,
+        };
         waiter.write_info();
         Ok(waiter)
     }
@@ -73,7 +78,9 @@ impl Waiter {
 
     fn is_head(&self) -> bool {
         let mine = format!("{}.lock", self.name);
-        let Ok(entries) = fs::read_dir(&self.dir) else { return true };
+        let Ok(entries) = fs::read_dir(&self.dir) else {
+            return true;
+        };
         let mut names: Vec<String> = entries
             .filter_map(|e| e.ok())
             .filter_map(|e| e.file_name().into_string().ok())
@@ -100,12 +107,18 @@ impl Drop for Waiter {
 }
 
 fn waiter_alive(dir: &Path, lock_name: &str) -> bool {
-    let born: u128 = lock_name.split('-').next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let born: u128 = lock_name
+        .split('-')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     if now_nanos().saturating_sub(born) < 1_000_000_000 {
         return true;
     }
     let path = dir.join(lock_name);
-    let Ok(file) = File::open(&path) else { return false };
+    let Ok(file) = File::open(&path) else {
+        return false;
+    };
     if flock(&file, libc::LOCK_EX | libc::LOCK_NB) {
         let _ = fs::remove_file(dir.join(lock_name.replace(".lock", ".json")));
         let _ = fs::remove_file(&path);
@@ -169,11 +182,22 @@ fn machine_check(
         snap.avail_gb = Some(mem.avail_gb);
         snap.swap_gb = Some(mem.swap_used_gb);
         let reserved = crate::headroom::reserved_mb(&running);
-        if !crate::headroom::fits(mem.avail_gb, settings.min_free_gb, reserved, pred.ram_mb, others_running) {
+        if !crate::headroom::fits(
+            mem.avail_gb,
+            settings.min_free_gb,
+            reserved,
+            pred.ram_mb,
+            others_running,
+        ) {
             return Err(("ram", snap));
         }
     }
-    if !crate::headroom::cores_fit(settings.max_cores, crate::headroom::committed_cores(&running), pred.cores, others_running) {
+    if !crate::headroom::cores_fit(
+        settings.max_cores,
+        crate::headroom::committed_cores(&running),
+        pred.cores,
+        others_running,
+    ) {
         return Err(("cores", snap));
     }
     if others_running && settings.max_load_per_core > 0.0 {
@@ -184,7 +208,10 @@ fn machine_check(
     }
     if others_running && settings.max_swapout_mb_s > 0.0 {
         snap.swapout = sysinfo::swapout_rate_mb_s();
-        if snap.swapout.is_some_and(|rate| rate > settings.max_swapout_mb_s) {
+        if snap
+            .swapout
+            .is_some_and(|rate| rate > settings.max_swapout_mb_s)
+        {
             return Err(("swap", snap));
         }
     }
@@ -219,7 +246,10 @@ fn explain(reason: &str) -> &'static str {
 fn install_signal_handlers() {
     for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
         unsafe {
-            libc::signal(sig, on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t);
+            libc::signal(
+                sig,
+                on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t,
+            );
         }
     }
 }
@@ -283,9 +313,19 @@ pub fn run(opts: RunOpts) -> i32 {
     let pid = std::process::id();
     let job = format!("{:x}-{pid}", now_ms());
     let cmd_text = opts.command.join(" ");
-    let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
     let running_now = crate::status::running_jobs(&root, settings.slots).0;
-    let pred = crate::predict::predict(&root, &settings, opts.label.as_deref(), &cmd_text, &cwd, &running_now, &opts.hint);
+    let pred = crate::predict::predict(
+        &root,
+        &settings,
+        opts.label.as_deref(),
+        &cmd_text,
+        &cwd,
+        &running_now,
+        &opts.hint,
+    );
     let mut waiter = match Waiter::create(
         &root,
         WaitInfo {
@@ -365,7 +405,8 @@ pub fn run(opts: RunOpts) -> i32 {
                     }
                 }
                 let waited = started.elapsed();
-                if !opts.wait || (opts.max_wait_secs > 0 && waited.as_secs() >= opts.max_wait_secs) {
+                if !opts.wait || (opts.max_wait_secs > 0 && waited.as_secs() >= opts.max_wait_secs)
+                {
                     let mut e = event("timeout");
                     e.wait_ms = Some(waited.as_millis() as u64);
                     e.blocked_ms = Some(blocked.clone());
@@ -373,7 +414,11 @@ pub fn run(opts: RunOpts) -> i32 {
                     eprintln!(
                         "agent-bouncer: busy, {} (exit {EXIT_BUSY}){}",
                         explain(why),
-                        if opts.wait { format!(" after {}s", waited.as_secs()) } else { String::new() }
+                        if opts.wait {
+                            format!(" after {}s", waited.as_secs())
+                        } else {
+                            String::new()
+                        }
                     );
                     return EXIT_BUSY;
                 }
@@ -422,7 +467,9 @@ pub fn run(opts: RunOpts) -> i32 {
 
     let fds: Vec<i32> = held.iter().map(|(_, f)| f.as_raw_fd()).collect();
     let mut command = Command::new(&opts.command[0]);
-    command.args(&opts.command[1..]).env("AGENT_BOUNCER_JOB", &job);
+    command
+        .args(&opts.command[1..])
+        .env("AGENT_BOUNCER_JOB", &job);
     unsafe {
         command.pre_exec(move || {
             libc::setsid();
@@ -507,7 +554,9 @@ pub fn run(opts: RunOpts) -> i32 {
     if opts.reap {
         reap_group(pgid);
     }
-    let code = status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
+    let code = status
+        .code()
+        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
     let mut fin = event("finish");
     fin.dur_ms = Some(run_started.elapsed().as_millis() as u64);
     fin.exit = Some(code);

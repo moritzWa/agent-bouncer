@@ -44,7 +44,11 @@ fn parse_secs_arg(text: &str) -> Result<u64, String> {
 
 impl Expect {
     fn hint(&self) -> predict::Hint {
-        predict::Hint { ram_mb: self.expect_ram, cores: self.expect_cores.filter(|c| *c > 0.0), secs: self.expect_secs }
+        predict::Hint {
+            ram_mb: self.expect_ram,
+            cores: self.expect_cores.filter(|c| *c > 0.0),
+            secs: self.expect_secs,
+        }
     }
 }
 
@@ -109,7 +113,15 @@ enum Cmd {
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
-        Cmd::Run { wait, max_wait, weight, label, no_reap, expect, command } => run::run(run::RunOpts {
+        Cmd::Run {
+            wait,
+            max_wait,
+            weight,
+            label,
+            no_reap,
+            expect,
+            command,
+        } => run::run(run::RunOpts {
             command,
             wait: wait || max_wait.is_some(),
             max_wait_secs: max_wait.unwrap_or(1800),
@@ -123,7 +135,10 @@ fn main() {
             let _ = state::ensure_dirs(&root);
             let report = status::collect(&root, &state::Settings::from_env(), cpu);
             if json {
-                println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).unwrap_or_default()
+                );
             } else {
                 print!("{}", status::render(&report));
             }
@@ -143,17 +158,30 @@ fn main() {
         Cmd::Doctor => {
             let (ok, text) = predict::doctor(&state::Settings::from_env());
             println!("{text}");
-            if ok { 0 } else { 1 }
+            if ok {
+                0
+            } else {
+                1
+            }
         }
-        Cmd::Predict { show, expect, command } => {
+        Cmd::Predict {
+            show,
+            expect,
+            command,
+        } => {
             let root = state::root();
             let _ = state::ensure_dirs(&root);
             let settings = state::Settings::from_env();
-            let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+            let cwd = std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
             let running = status::running_jobs(&root, settings.slots).0;
             let (cmd, hint) = (command.join(" "), expect.hint());
             if show {
-                print!("{}", predict::show_prompt(&root, None, &cmd, &cwd, &running, &hint));
+                print!(
+                    "{}",
+                    predict::show_prompt(&root, None, &cmd, &cwd, &running, &hint)
+                );
             } else {
                 let p = predict::predict(&root, &settings, None, &cmd, &cwd, &running, &hint);
                 println!("{} MB, {:.1} cores ({})", p.ram_mb, p.cores, p.source);

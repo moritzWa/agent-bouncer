@@ -88,13 +88,22 @@ pub fn cores_fit(max_cores: f64, committed: f64, predicted: f64, others_running:
 
 /// Memory the running jobs are still expected to grow into.
 pub fn reserved_mb(running: &[SlotInfo]) -> u64 {
-    running.iter().map(|job| job.est_peak_mb.saturating_sub(job.rss_mb)).sum()
+    running
+        .iter()
+        .map(|job| job.est_peak_mb.saturating_sub(job.rss_mb))
+        .sum()
 }
 
 /// Whether a job expected to peak at `predicted_mb` can start without taking
 /// free RAM below the floor once everything running has reached its peak. With
 /// nothing running it only needs the floor, so a big job can never wait forever.
-pub fn fits(avail_gb: f64, min_free_gb: f64, reserved_mb: u64, predicted_mb: u64, others_running: bool) -> bool {
+pub fn fits(
+    avail_gb: f64,
+    min_free_gb: f64,
+    reserved_mb: u64,
+    predicted_mb: u64,
+    others_running: bool,
+) -> bool {
     if !others_running {
         return avail_gb >= min_free_gb;
     }
@@ -131,7 +140,9 @@ mod tests {
 
     #[test]
     fn predicts_from_the_same_kind_of_job() {
-        let events: Vec<Event> = (1..=10).map(|n| finished("cargo test --lib", n * 100)).collect();
+        let events: Vec<Event> = (1..=10)
+            .map(|n| finished("cargo test --lib", n * 100))
+            .collect();
         let history = History::from_events(&events);
         assert_eq!(history.predict_mb(None, "cargo test"), 900);
         assert_eq!(history.predict_mb(None, "pnpm build"), UNKNOWN_MB);

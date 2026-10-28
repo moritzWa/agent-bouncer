@@ -86,11 +86,17 @@ pub fn root() -> PathBuf {
 }
 
 pub fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub fn now_nanos() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
 }
 
 pub fn local_day(ms: u64) -> String {
@@ -99,7 +105,12 @@ pub fn local_day(ms: u64) -> String {
     unsafe {
         libc::localtime_r(&t, &mut tm);
     }
-    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
+    format!(
+        "{:04}-{:02}-{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday
+    )
 }
 
 pub fn fmt_dur(ms: u64) -> String {
@@ -206,16 +217,26 @@ pub struct Event {
 
 impl Event {
     pub fn new(ev: &str, job: &str) -> Self {
-        Event { ts: now_ms(), ev: ev.into(), job: job.into(), ..Default::default() }
+        Event {
+            ts: now_ms(),
+            ev: ev.into(),
+            job: job.into(),
+            ..Default::default()
+        }
     }
 }
 
 pub fn log_event(root: &Path, event: &Event) {
     let path = root.join("events.jsonl");
-    if fs::metadata(&path).map(|m| m.len() > LOG_ROTATE_BYTES).unwrap_or(false) {
+    if fs::metadata(&path)
+        .map(|m| m.len() > LOG_ROTATE_BYTES)
+        .unwrap_or(false)
+    {
         let _ = fs::rename(&path, root.join("events.1.jsonl"));
     }
-    let Ok(mut line) = serde_json::to_string(event) else { return };
+    let Ok(mut line) = serde_json::to_string(event) else {
+        return;
+    };
     line.push('\n');
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = file.write_all(line.as_bytes());
@@ -227,7 +248,9 @@ pub fn read_recent_events(root: &Path) -> Vec<Event> {
     const TAIL_BYTES: u64 = 4 * 1024 * 1024;
     let mut out = Vec::new();
     for name in ["events.1.jsonl", "events.jsonl"] {
-        let Ok(mut file) = File::open(root.join(name)) else { continue };
+        let Ok(mut file) = File::open(root.join(name)) else {
+            continue;
+        };
         let len = file.metadata().map(|m| m.len()).unwrap_or(0);
         let start = len.saturating_sub(TAIL_BYTES);
         if start > 0 && file.seek(SeekFrom::Start(start)).is_err() {
@@ -239,7 +262,11 @@ pub fn read_recent_events(root: &Path) -> Vec<Event> {
         }
         let text = String::from_utf8_lossy(&bytes);
         let skip = usize::from(start > 0);
-        out.extend(text.lines().skip(skip).filter_map(|l| serde_json::from_str::<Event>(l).ok()));
+        out.extend(
+            text.lines()
+                .skip(skip)
+                .filter_map(|l| serde_json::from_str::<Event>(l).ok()),
+        );
     }
     out
 }
@@ -248,7 +275,10 @@ pub fn read_events(root: &Path) -> Vec<Event> {
     let mut out = Vec::new();
     for name in ["events.1.jsonl", "events.jsonl"] {
         if let Ok(text) = fs::read_to_string(root.join(name)) {
-            out.extend(text.lines().filter_map(|l| serde_json::from_str::<Event>(l).ok()));
+            out.extend(
+                text.lines()
+                    .filter_map(|l| serde_json::from_str::<Event>(l).ok()),
+            );
         }
     }
     out

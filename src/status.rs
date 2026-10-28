@@ -23,11 +23,12 @@ pub struct Report {
 }
 
 /// When the last job should finish, if every job takes as long as it usually
-/// does: running jobs get what is left of their usual time, and each waiting
-/// job starts on the slot that frees up first.
+/// does: running jobs get what is left of their usual time (a job past it is
+/// assumed to need about as long again), and each waiting job starts where the
+/// first running job ends.
 pub fn estimate_free_ms(
     root: &Path,
-    slots: usize,
+    _slots: usize,
     running: &[SlotInfo],
     waiting: &[WaitInfo],
     now: u64,
@@ -38,7 +39,10 @@ pub fn estimate_free_ms(
     let mut durations: std::collections::HashMap<String, Vec<u64>> = Default::default();
     for event in read_recent_events(root) {
         if let (true, Some(dur)) = (event.ev == "finish", event.dur_ms) {
-            durations.entry(crate::stats::command_key(&event)).or_default().push(dur);
+            durations
+                .entry(crate::stats::command_key(&event))
+                .or_default()
+                .push(dur);
         }
     }
     let mut everything: Vec<u64> = durations.values().flatten().copied().collect();
@@ -46,25 +50,39 @@ pub fn estimate_free_ms(
     if everything.is_empty() {
         return None;
     }
-    let typical = crate::stats::percentile(&everything, 0.5);
-    let usual = |label: Option<&str>, cmd: &str| -> Option<u64> {
-        let Some(list) = durations.get(&crate::stats::key_of(label, cmd)) else {
-            return Some(typical);
-        };
-        let mut list = list.clone();
-        list.sort_unstable();
-        Some(crate::stats::percentile(&list, 0.5))
-    };
-    let mut free_at: Vec<u64> = vec![0; slots.max(1)];
-    for (index, job) in running.iter().enumerate() {
-        let left = usual(job.label.as_deref(), &job.cmd)?
-            .saturating_sub(now.saturating_sub(job.started_ms));
-        if let Some(slot) = free_at.get_mut(index) {
-            *slot = left;
+    let history = |label: Option<&str>, cmd: &str| -> Vec<u64> {
+        match durations.get(&crate::stats::key_of(label, cmd)) {
+            Some(list) => {
+                let mut list = list.clone();
+                list.sort_unstable();
+                list
+            }
+            None => everything.clone(),
         }
+    };
+    // A job already past its usual time is not done. It is somewhere in the
+    // long tail, so it has about as long left as it has already run.
+    let left_of = |job: &SlotInfo| -> u64 {
+        let list = history(job.label.as_deref(), &job.cmd);
+        let elapsed = now.saturating_sub(job.started_ms);
+        let usual = crate::stats::percentile(&list, 0.5);
+        let slow = crate::stats::percentile(&list, 0.9);
+        if elapsed < usual {
+            usual - elapsed
+        } else if elapsed < slow {
+            slow - elapsed
+        } else {
+            elapsed / 2
+        }
+    };
+    // A job only waits when the machine is full, so it takes over the place of
+    // whichever running job ends first, however many slots are configured.
+    let mut free_at: Vec<u64> = running.iter().map(left_of).collect();
+    if free_at.is_empty() {
+        free_at.push(0);
     }
     for job in waiting {
-        let duration = usual(job.label.as_deref(), &job.cmd)?;
+        let duration = crate::stats::percentile(&history(job.label.as_deref(), &job.cmd), 0.5);
         let slot = free_at.iter_mut().min()?;
         *slot += duration;
     }
@@ -72,7 +90,9 @@ pub fn estimate_free_ms(
 }
 
 fn is_locked(path: &Path) -> bool {
-    let Ok(file) = File::open(path) else { return false };
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
     !flock(&file, libc::LOCK_SH | libc::LOCK_NB)
 }
 
@@ -86,7 +106,10 @@ pub fn running_jobs(root: &Path, _slots: usize) -> (Vec<SlotInfo>, usize) {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
-            name.strip_prefix("slot-")?.strip_suffix(".lock")?.parse::<usize>().ok()
+            name.strip_prefix("slot-")?
+                .strip_suffix(".lock")?
+                .parse::<usize>()
+                .ok()
         })
         .max()
         .map_or(0, |top| top + 1);
@@ -123,7 +146,10 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
                 continue;
             }
             let json = dir.join(name.replace(".lock", ".json"));
-            if let Some(info) = fs::read(json).ok().and_then(|b| serde_json::from_slice::<WaitInfo>(&b).ok()) {
+            if let Some(info) = fs::read(json)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<WaitInfo>(&b).ok())
+            {
                 waiting.push(info);
             }
         }
@@ -135,13 +161,21 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
         .clamp(1, settings.slots);
     let est_free_ms = estimate_free_ms(root, concurrency, &running, &waiting, now_ms());
     Report {
-        slots_total: if settings.slots == UNCAPPED_SLOTS { 0 } else { settings.slots },
+        slots_total: if settings.slots == UNCAPPED_SLOTS {
+            0
+        } else {
+            settings.slots
+        },
         slots_in_use: in_use,
         cores_committed: crate::headroom::committed_cores(&running),
         cores_total: settings.max_cores,
         avail_gb: mem.map(|m| m.avail_gb),
         swap_gb: mem.map(|m| m.swap_used_gb),
-        cpu_busy: if with_cpu { sysinfo::cpu_busy_pct() } else { None },
+        cpu_busy: if with_cpu {
+            sysinfo::cpu_busy_pct()
+        } else {
+            None
+        },
         running,
         waiting,
         est_free_ms,
@@ -262,16 +296,48 @@ mod estimate_tests {
         let free = estimate_free_ms(dir.path(), 2, &running, &[wait("c")], 4_000);
         // a ends in 6s, c then runs 8s there; b still has 26s.
         assert_eq!(free, Some(26_000));
-        let free = estimate_free_ms(dir.path(), 2, &running, &[wait("c"), wait("c"), wait("c")], 4_000);
+        let free = estimate_free_ms(
+            dir.path(),
+            2,
+            &running,
+            &[wait("c"), wait("c"), wait("c")],
+            4_000,
+        );
         assert_eq!(free, Some(30_000));
     }
 
     #[test]
     fn unknown_jobs_take_the_typical_time_and_no_history_means_no_estimate() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1), None);
+        assert_eq!(
+            estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1),
+            None
+        );
         history(dir.path(), &[("a", 10_000)]);
-        assert_eq!(estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1_000), Some(9_000));
+        assert_eq!(
+            estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1_000),
+            Some(9_000)
+        );
         assert_eq!(estimate_free_ms(dir.path(), 2, &[], &[], 1), None);
+    }
+
+    #[test]
+    fn a_job_past_its_usual_time_is_not_done() {
+        let dir = tempfile::tempdir().unwrap();
+        history(dir.path(), &[("a", 10_000), ("a", 12_000), ("a", 14_000)]);
+        let long = [slot("a", 0)];
+        assert_eq!(
+            estimate_free_ms(dir.path(), 2, &long, &[], 600_000),
+            Some(300_000)
+        );
+        assert!(estimate_free_ms(dir.path(), 2, &long, &[], 13_000).unwrap() > 0);
+    }
+
+    #[test]
+    fn waiting_jobs_queue_behind_running_ones_even_with_no_slot_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        history(dir.path(), &[("a", 10_000), ("c", 8_000)]);
+        let free = estimate_free_ms(dir.path(), 1_000_000, &[slot("a", 0)], &[wait("c")], 4_000);
+        assert_eq!(free, Some(14_000));
     }
 }
