@@ -19,6 +19,8 @@ pub struct Prediction {
     pub cores: f64,
     /// Where the numbers came from: model, cache, history or default.
     pub source: &'static str,
+    /// What the model answered before the sanity limits and history floor, and how long it took.
+    pub raw: Option<(u64, f64, u64)>,
 }
 
 /// What the agent that asked to run the job says it will need. It knows what it is
@@ -87,6 +89,7 @@ pub fn predict(
         ram_mb: history.predict_mb(label, cmd),
         cores: history.predict_cores(label, cmd),
         source: if history.knows(label, cmd) { "history" } else { "default" },
+        raw: None,
     };
     let Some(model) = settings.model.as_deref() else { return fallback };
 
@@ -101,17 +104,25 @@ pub fn predict(
     let Some((api_key, _)) = api_key() else { return fallback };
 
     let prompt = build_prompt(&events, label, cmd, cwd, running, hint, gather_context(cwd, cmd));
+    let asked_at = std::time::Instant::now();
     let Some((ram, cores)) = ask(model, &api_key, &prompt, settings.model_timeout_secs) else {
         mark_down(root);
         return fallback;
     };
+    let model_ms = asked_at.elapsed().as_millis() as u64;
     let mut ram_mb = (ram.round() as u64).clamp(50, 65_536);
+    let cores_raw = cores;
     let mut cores = cores.clamp(0.1, crate::sysinfo::cores() as f64);
     if let Some((floor_mb, floor_cores)) = history_floor(&events, &key, cwd) {
         ram_mb = ram_mb.max(floor_mb);
         cores = cores.max(floor_cores.unwrap_or(0.0));
     }
-    let prediction = Prediction { ram_mb, cores: (cores * 10.0).round() / 10.0, source: "model" };
+    let prediction = Prediction {
+        ram_mb,
+        cores: (cores * 10.0).round() / 10.0,
+        source: "model",
+        raw: Some((ram.round().max(0.0) as u64, (cores_raw * 10.0).round() / 10.0, model_ms)),
+    };
     write_cache(&cache, &prediction);
     prediction
 }
@@ -500,6 +511,7 @@ fn read_cache(path: &Path, events: &[Event], key: &str) -> Option<Prediction> {
         ram_mb: value.get("ram_mb")?.as_u64()?,
         cores: value.get("cores")?.as_f64()?,
         source: "cache",
+        raw: None,
     })
 }
 
@@ -608,7 +620,7 @@ mod tests {
     fn a_cached_answer_expires_when_a_new_measurement_arrives() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("c.json");
-        let hit = Prediction { ram_mb: 1000, cores: 2.0, source: "model" };
+        let hit = Prediction { ram_mb: 1000, cores: 2.0, source: "model", raw: None };
         write_cache(&path, &hit);
         assert_eq!(read_cache(&path, &[], "bun test").unwrap().source, "cache");
         let newer = finish("bun test", "/a", 900, now_ms() + 5_000);

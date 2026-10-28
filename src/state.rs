@@ -181,6 +181,18 @@ pub struct Event {
     pub swap_gb: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_busy: Option<f64>,
+    /// The model's own answer before the sanity limits and history floor, and its latency.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_cores: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_ms: Option<u64>,
+    /// Lowest free RAM and highest swap seen while the job ran: did the machine suffer?
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_avail_gb: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_swap_gb: Option<f64>,
 }
 
 impl Event {

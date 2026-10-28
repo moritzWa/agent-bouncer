@@ -400,6 +400,11 @@ pub fn run(opts: RunOpts) -> i32 {
     admit.est_mb = Some(pred.ram_mb);
     admit.est_cores = Some(pred.cores);
     admit.est_source = Some(pred.source.to_string());
+    if let Some((mb, cores, ms)) = pred.raw {
+        admit.model_mb = Some(mb);
+        admit.model_cores = Some(cores);
+        admit.model_ms = Some(ms);
+    }
     admit.hint_mb = opts.hint.ram_mb;
     admit.hint_cores = opts.hint.cores;
     admit.hint_secs = opts.hint.secs;
@@ -439,6 +444,8 @@ pub fn run(opts: RunOpts) -> i32 {
     let pgid = child.id() as i32;
     let mut peak: u64 = 0;
     let mut peak_cores: f64 = 0.0;
+    let mut min_avail: Option<f64> = None;
+    let mut max_swap: Option<f64> = None;
     let mut cpu_ref: Option<(f64, Instant)> = None;
     let mut last_sample = Instant::now() - Duration::from_millis(1500);
     let mut signalled: Option<Instant> = None;
@@ -462,6 +469,10 @@ pub fn run(opts: RunOpts) -> i32 {
         }
         if last_sample.elapsed() >= Duration::from_secs(2) {
             last_sample = Instant::now();
+            if let Some(mem) = sysinfo::memory() {
+                min_avail = Some(min_avail.map_or(mem.avail_gb, |m| m.min(mem.avail_gb)));
+                max_swap = Some(max_swap.map_or(mem.swap_used_gb, |m| m.max(mem.swap_used_gb)));
+            }
             if let Some(usage) = sysinfo::group_usage(pgid) {
                 peak = peak.max(usage.rss_mb);
                 info.rss_mb = usage.rss_mb;
@@ -492,6 +503,8 @@ pub fn run(opts: RunOpts) -> i32 {
     fin.peak_rss_mb = Some(peak);
     fin.peak_cores = (peak_cores > 0.0).then(|| (peak_cores * 10.0).round() / 10.0);
     fin.leftover_mb = leftover;
+    fin.min_avail_gb = min_avail.map(|v| (v * 10.0).round() / 10.0);
+    fin.max_swap_gb = max_swap.map(|v| (v * 10.0).round() / 10.0);
     log_event(&root, &fin);
     if opts.reap || leftover.is_none() {
         for (i, _) in &held {
