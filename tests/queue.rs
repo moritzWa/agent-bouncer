@@ -10,6 +10,7 @@ fn bouncer(dir: &Path, slots: usize) -> Command {
         .env("AGENT_BOUNCER_MAX_CPU", "100")
         .env("AGENT_BOUNCER_SETTLE_MS", "0")
         .env("AGENT_BOUNCER_MAX_LOAD", "0")
+        .env("AGENT_BOUNCER_MAX_SWAPOUT", "0")
         .env("AGENT_BOUNCER_MODEL", "off")
         .env_remove("AGENT_BOUNCER_JOB");
     cmd

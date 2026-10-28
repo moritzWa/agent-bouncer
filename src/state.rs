@@ -17,6 +17,8 @@ pub struct Settings {
     pub settle_ms: u64,
     /// One-minute load average, per core, above which no job is let in beside a running one.
     pub max_load_per_core: f64,
+    /// MB per second written to swap above which no job is let in beside a running one.
+    pub max_swapout_mb_s: f64,
     /// CPU cores the running jobs may be expected to use together.
     pub max_cores: f64,
     /// OpenRouter model that predicts a job's RAM and cores. None turns it off.
@@ -41,6 +43,7 @@ impl Settings {
             max_cpu_busy: env_parse("AGENT_BOUNCER_MAX_CPU").unwrap_or(90.0),
             settle_ms: env_parse("AGENT_BOUNCER_SETTLE_MS").unwrap_or(2000),
             max_load_per_core: env_parse("AGENT_BOUNCER_MAX_LOAD").unwrap_or(1.5),
+            max_swapout_mb_s: env_parse("AGENT_BOUNCER_MAX_SWAPOUT").unwrap_or(25.0),
             max_cores: env_parse("AGENT_BOUNCER_MAX_CORES").unwrap_or(cores as f64),
             model: match std::env::var("AGENT_BOUNCER_MODEL") {
                 Ok(v) if matches!(v.trim(), "" | "off" | "none") => None,
@@ -193,6 +196,12 @@ pub struct Event {
     pub min_avail_gb: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_swap_gb: Option<f64>,
+    /// MB per second being written to swap when the event was logged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swapout_mb_s: Option<f64>,
+    /// MB the whole machine wrote to swap while the job ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swapped_out_mb: Option<f64>,
 }
 
 impl Event {

@@ -33,6 +33,7 @@ struct Snapshot {
     avail_gb: Option<f64>,
     swap_gb: Option<f64>,
     cpu: Option<f64>,
+    swapout: Option<f64>,
 }
 
 type Admitted = (Vec<(usize, File)>, Snapshot);
@@ -181,6 +182,12 @@ fn machine_check(
             return Err(("load", snap));
         }
     }
+    if others_running && settings.max_swapout_mb_s > 0.0 {
+        snap.swapout = sysinfo::swapout_rate_mb_s();
+        if snap.swapout.is_some_and(|rate| rate > settings.max_swapout_mb_s) {
+            return Err(("swap", snap));
+        }
+    }
     if others_running && pred.ram_mb >= LIGHT_JOB_MB && settling(root, settings.settle_ms) {
         return Err(("settle", snap));
     }
@@ -204,6 +211,7 @@ fn explain(reason: &str) -> &'static str {
         "settle" => "the last job is still starting up",
         "cores" => "the running jobs are already expected to use all the CPU cores",
         "load" => "the machine is overloaded",
+        "swap" => "the machine is writing memory out to disk",
         _ => "busy",
     }
 }
@@ -349,6 +357,7 @@ pub fn run(opts: RunOpts) -> i32 {
                     e.avail_gb = snap.avail_gb;
                     e.swap_gb = snap.swap_gb;
                     e.cpu_busy = snap.cpu;
+                    e.swapout_mb_s = snap.swapout.map(|v| (v * 10.0).round() / 10.0);
                     e.reason = Some(why.into());
                     log_event(&root, &e);
                     if opts.wait {
@@ -397,6 +406,7 @@ pub fn run(opts: RunOpts) -> i32 {
     admit.avail_gb = admit_snap.avail_gb;
     admit.swap_gb = admit_snap.swap_gb;
     admit.cpu_busy = admit_snap.cpu;
+    admit.swapout_mb_s = admit_snap.swapout.map(|v| (v * 10.0).round() / 10.0);
     admit.est_mb = Some(pred.ram_mb);
     admit.est_cores = Some(pred.cores);
     admit.est_source = Some(pred.source.to_string());
@@ -426,6 +436,7 @@ pub fn run(opts: RunOpts) -> i32 {
         });
     }
     let run_started = Instant::now();
+    let swapped_out_before = sysinfo::swapped_out_mb();
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(err) => {
@@ -505,6 +516,9 @@ pub fn run(opts: RunOpts) -> i32 {
     fin.leftover_mb = leftover;
     fin.min_avail_gb = min_avail.map(|v| (v * 10.0).round() / 10.0);
     fin.max_swap_gb = max_swap.map(|v| (v * 10.0).round() / 10.0);
+    fin.swapped_out_mb = swapped_out_before
+        .zip(sysinfo::swapped_out_mb())
+        .map(|(before, after)| (after - before).max(0.0).round());
     log_event(&root, &fin);
     if opts.reap || leftover.is_none() {
         for (i, _) in &held {

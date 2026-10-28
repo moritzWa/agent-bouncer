@@ -82,6 +82,7 @@ agent-bouncer log -n 50       # raw events as JSON lines
 | `AGENT_BOUNCER_MIN_FREE_GB` | 3 | Free RAM floor for admitting a job |
 | `AGENT_BOUNCER_SETTLE_MS` | 2000 | Time a new job gets to ramp up before another starts beside it |
 | `AGENT_BOUNCER_MAX_LOAD` | 1.5 | One-minute load average per core above which no job starts beside a running one (0 turns it off) |
+| `AGENT_BOUNCER_MAX_SWAPOUT` | 25 | MB per second written to swap above which no job starts beside a running one: the Mac is short of RAM right now (0 turns it off) |
 | `AGENT_BOUNCER_MAX_CPU` | 90 | Busy CPU percent above which no job is admitted (100 turns the check off) |
 | `AGENT_BOUNCER_DIR` | `~/.local/state/agent-bouncer` | State and event log |
 

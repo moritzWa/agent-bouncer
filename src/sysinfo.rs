@@ -135,6 +135,60 @@ pub fn parse_vm_stat(text: &str) -> Option<f64> {
     seen.then(|| pages * page / GB)
 }
 
+/// Total memory the system has written out to swap since boot, in MB.
+pub fn swapped_out_mb() -> Option<f64> {
+    if cfg!(target_os = "macos") {
+        parse_swapouts(&run("vm_stat", &[])?)
+    } else {
+        let info = std::fs::read_to_string("/proc/vmstat").ok()?;
+        let pages: f64 = info.lines().find_map(|l| l.strip_prefix("pswpout "))?.trim().parse().ok()?;
+        Some(pages * 4096.0 / (1024.0 * 1024.0))
+    }
+}
+
+pub fn parse_swapouts(text: &str) -> Option<f64> {
+    let mut page = 4096.0;
+    if let Some(start) = text.find("page size of ") {
+        let rest = &text[start + "page size of ".len()..];
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(v) = digits.parse::<f64>() {
+            page = v;
+        }
+    }
+    let pages: f64 = text
+        .lines()
+        .find_map(|l| l.strip_prefix("Swapouts:"))?
+        .trim()
+        .trim_end_matches('.')
+        .parse()
+        .ok()?;
+    Some(pages * page / (1024.0 * 1024.0))
+}
+
+static LAST_SWAPOUT: std::sync::Mutex<Option<(std::time::Instant, f64)>> = std::sync::Mutex::new(None);
+
+/// MB per second written to swap since the last look. Swap that is merely full is old
+/// news; swap that is being written right now means the machine is short of RAM.
+pub fn swapout_rate_mb_s() -> Option<f64> {
+    let now = (std::time::Instant::now(), swapped_out_mb()?);
+    let previous = LAST_SWAPOUT.lock().ok()?.replace(now);
+    let (then, before) = match previous {
+        Some(p) if p.0.elapsed() < Duration::from_secs(5) && now.0.duration_since(p.0) >= Duration::from_millis(200) => p,
+        _ => {
+            std::thread::sleep(Duration::from_millis(300));
+            let again = (std::time::Instant::now(), swapped_out_mb()?);
+            *LAST_SWAPOUT.lock().ok()? = Some(again);
+            return Some(rate(now, again));
+        }
+    };
+    Some(rate((then, before), now))
+}
+
+fn rate(a: (std::time::Instant, f64), b: (std::time::Instant, f64)) -> f64 {
+    let secs = b.0.duration_since(a.0).as_secs_f64().max(0.001);
+    ((b.1 - a.1).max(0.0)) / secs
+}
+
 pub fn parse_swapusage(text: &str) -> Option<f64> {
     let rest = &text[text.find("used = ")? + "used = ".len()..];
     let token = rest.split_whitespace().next()?;
@@ -232,6 +286,21 @@ mod tests {
         let text = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 100.\nPages inactive: 5000.\nPages speculative: 10.\nPages purgeable: 20.\nFile-backed pages: 300.\n";
         let gb = parse_vm_stat(text).unwrap();
         assert!((gb - 430.0 * 16384.0 / GB).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parses_total_swapped_out() {
+        let text = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nSwapins: 5.\nSwapouts: 64.\n";
+        assert!((parse_swapouts(text).unwrap() - 1.0).abs() < 1e-9);
+        assert_eq!(parse_swapouts("Pages free: 1.\n"), None);
+    }
+
+    #[test]
+    fn swap_rate_is_megabytes_per_second_and_never_negative() {
+        let t = std::time::Instant::now();
+        let later = t + Duration::from_secs(2);
+        assert!((rate((t, 10.0), (later, 50.0)) - 20.0).abs() < 1e-9);
+        assert_eq!(rate((t, 50.0), (later, 10.0)), 0.0);
     }
 
     #[test]
