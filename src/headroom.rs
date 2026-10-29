@@ -97,7 +97,9 @@ pub fn expected_cores(job: &SlotInfo, now_ms: u64) -> f64 {
     if !past_ramp(job, now_ms) {
         return job.est_cores;
     }
-    job.est_cores.min((job.peak_cores * 1.5).max(0.5))
+    job.est_cores
+        .min((job.peak_cores * 1.5).max(0.5))
+        .max(job.peak_cores)
 }
 
 /// Cores the running jobs are expected to use at their busiest.
@@ -207,6 +209,15 @@ mod tests {
         assert_eq!(reserved_mb(&[job.clone()], 120_000), 320);
         assert_eq!(committed_cores(&[job.clone()], 1_000), 2.5);
         assert_eq!(committed_cores(&[job], 120_000), 0.5);
+    }
+
+    #[test]
+    fn a_job_using_more_cores_than_estimated_is_counted_at_what_it_uses() {
+        let mut job = running(1000, 500);
+        job.est_cores = 2.0;
+        job.peak_cores = 6.0;
+        assert_eq!(committed_cores(&[job.clone()], 1_000), 2.0);
+        assert_eq!(committed_cores(&[job], 120_000), 6.0);
     }
 
     #[test]
