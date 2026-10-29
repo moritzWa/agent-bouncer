@@ -253,15 +253,23 @@ fn machine_check(
 
 const BACKFILL_MAX_MB: u64 = 1500;
 const BACKFILL_MAX_CORES: f64 = 2.0;
-const BACKFILL_HEAD_PATIENCE_MS: u64 = 5 * 60_000;
+const BACKFILL_HEAD_PATIENCE_MS: u64 = 15 * 60_000;
+const TINY_MAX_MB: u64 = 700;
+const TINY_MAX_CORES: f64 = 1.0;
 
 /// A small job may pass a big one that is stuck waiting for RAM or cores, so a
 /// 15-second test does not sit behind a 4 GB build. Once the big job has
-/// waited a few minutes the line is strict again, so it cannot starve.
+/// waited a while the line is strict again, so it cannot starve. Tiny jobs
+/// take too little to delay the big one, so they always pass.
 fn may_backfill(head: &WaitInfo, now: u64, ram_mb: u64, cores: f64) -> bool {
+    if !matches!(head.reason.as_str(), "ram" | "cores") {
+        return false;
+    }
+    if ram_mb <= TINY_MAX_MB && cores <= TINY_MAX_CORES {
+        return true;
+    }
     ram_mb <= BACKFILL_MAX_MB
         && cores <= BACKFILL_MAX_CORES
-        && matches!(head.reason.as_str(), "ram" | "cores")
         && now.saturating_sub(head.since_ms) < BACKFILL_HEAD_PATIENCE_MS
 }
 
@@ -654,6 +662,24 @@ mod backfill_tests {
 
     #[test]
     fn a_head_that_waited_long_is_not_passed_again() {
-        assert!(!may_backfill(&head("ram", 6 * 60_000), 1_000_000, 900, 1.0));
+        assert!(may_backfill(&head("ram", 6 * 60_000), 1_000_000, 900, 1.0));
+        assert!(!may_backfill(
+            &head("ram", 16 * 60_000),
+            1_000_000,
+            900,
+            1.0
+        ));
+    }
+
+    #[test]
+    fn tiny_jobs_pass_however_long_the_head_has_waited() {
+        assert!(may_backfill(&head("ram", 16 * 60_000), 1_000_000, 512, 0.5));
+        assert!(!may_backfill(
+            &head("ram", 16 * 60_000),
+            1_000_000,
+            1_200,
+            1.5
+        ));
+        assert!(!may_backfill(&head("queue", 1_000), 1_000_000, 512, 0.5));
     }
 }

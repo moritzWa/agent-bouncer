@@ -47,7 +47,8 @@ impl Settings {
             settle_ms: env_parse("AGENT_BOUNCER_SETTLE_MS").unwrap_or(2000),
             max_load_per_core: env_parse("AGENT_BOUNCER_MAX_LOAD").unwrap_or(1.5),
             max_swapout_mb_s: env_parse("AGENT_BOUNCER_MAX_SWAPOUT").unwrap_or(25.0),
-            max_cores: env_parse("AGENT_BOUNCER_MAX_CORES").unwrap_or((cores as f64 * 1.25).round()),
+            max_cores: env_parse("AGENT_BOUNCER_MAX_CORES")
+                .unwrap_or((cores as f64 * 1.25).round()),
             min_running: env_parse("AGENT_BOUNCER_MIN_RUNNING").unwrap_or(2),
             model: match std::env::var("AGENT_BOUNCER_MODEL") {
                 Ok(v) if matches!(v.trim(), "" | "off" | "none") => None,
