@@ -77,7 +77,7 @@ agent-bouncer log -n 50       # raw events as JSON lines
 | `AGENT_BOUNCER_MODEL` | `google/gemini-3.1-flash-lite` | OpenRouter model that predicts a job's RAM and cores (`off` uses past runs only) |
 | `AGENT_BOUNCER_OPENROUTER_KEY` | | Key for it. Also read from `~/.config/agent-bouncer/openrouter-key`, then `OPENROUTER_API_KEY` |
 | `AGENT_BOUNCER_MODEL_TIMEOUT` | 6 | Seconds to wait for the model before using past runs |
-| `AGENT_BOUNCER_MAX_CORES` | all cores | Cores the running jobs may be expected to use together |
+| `AGENT_BOUNCER_MAX_CORES` | 1.25 x cores | Cores the running jobs may be expected to use together |
 | `AGENT_BOUNCER_SLOTS` | no limit | Optional hard cap on jobs at once; `--weight N` takes N of them |
 | `AGENT_BOUNCER_MIN_FREE_GB` | 3 | Free RAM floor for admitting a job |
 | `AGENT_BOUNCER_SETTLE_MS` | 2000 | Time a new job gets to ramp up before another starts beside it |
