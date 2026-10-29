@@ -251,32 +251,62 @@ pub fn parse_meminfo(text: &str) -> Option<Memory> {
     })
 }
 
-/// Memory now and CPU time used so far, summed over a process group.
+/// Memory now and CPU time used so far, summed over a job's processes.
 pub struct GroupUsage {
     pub rss_mb: u64,
     pub cpu_secs: f64,
 }
 
+/// Everything the job started: its process group, plus every descendant, since
+/// bundlers and test runners often put their workers in a group of their own.
 pub fn group_usage(pgid: i32) -> Option<GroupUsage> {
-    let out = run("ps", &["-axo", "pgid=,rss=,time="])?;
-    let mut usage = GroupUsage {
-        rss_mb: 0,
-        cpu_secs: 0.0,
-    };
-    let mut kb = 0u64;
-    for line in out.lines() {
-        let mut it = line.split_whitespace();
-        let (Some(group), Some(rss), Some(time)) = (it.next(), it.next(), it.next()) else {
-            continue;
-        };
-        if group.parse::<i32>().ok() != Some(pgid) {
-            continue;
-        }
-        kb += rss.parse::<u64>().unwrap_or(0);
-        usage.cpu_secs += parse_cpu_time(time).unwrap_or(0.0);
+    let out = run("ps", &["-axo", "pid=,ppid=,pgid=,rss=,time="])?;
+    Some(usage_of_tree(&out, pgid))
+}
+
+fn usage_of_tree(ps_output: &str, pgid: i32) -> GroupUsage {
+    struct Row {
+        pid: i32,
+        ppid: i32,
+        pgid: i32,
+        kb: u64,
+        cpu: f64,
     }
-    usage.rss_mb = kb / 1024;
-    Some(usage)
+    let rows: Vec<Row> = ps_output
+        .lines()
+        .filter_map(|line| {
+            let mut it = line.split_whitespace();
+            Some(Row {
+                pid: it.next()?.parse().ok()?,
+                ppid: it.next()?.parse().ok()?,
+                pgid: it.next()?.parse().ok()?,
+                kb: it.next()?.parse().ok()?,
+                cpu: parse_cpu_time(it.next()?).unwrap_or(0.0),
+            })
+        })
+        .collect();
+    let mut members: std::collections::HashSet<i32> = rows
+        .iter()
+        .filter(|r| r.pgid == pgid)
+        .map(|r| r.pid)
+        .collect();
+    loop {
+        let before = members.len();
+        for row in &rows {
+            if members.contains(&row.ppid) && row.pid != 1 {
+                members.insert(row.pid);
+            }
+        }
+        if members.len() == before {
+            break;
+        }
+    }
+    let mine = rows.iter().filter(|r| members.contains(&r.pid));
+    let (kb, cpu_secs) = mine.fold((0u64, 0.0), |(kb, cpu), r| (kb + r.kb, cpu + r.cpu));
+    GroupUsage {
+        rss_mb: kb / 1024,
+        cpu_secs,
+    }
 }
 
 /// `ps` CPU time: `1:02.50`, `01:02:03` or `2-01:02:03`.
@@ -309,6 +339,14 @@ pub fn group_rss_mb(pgid: i32) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_job_counts_workers_that_left_its_process_group() {
+        let ps = "100 1 100 1024 0:01.00\n101 100 100 2048 0:02.00\n102 101 102 4096 0:03.00\n103 102 102 8192 0:04.00\n200 1 200 99999 9:00.00\n";
+        let usage = usage_of_tree(ps, 100);
+        assert_eq!(usage.rss_mb, (1024 + 2048 + 4096 + 8192) / 1024);
+        assert_eq!(usage.cpu_secs, 10.0);
+    }
 
     #[test]
     fn parses_macos_vm_stat() {
