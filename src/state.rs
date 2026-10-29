@@ -21,6 +21,9 @@ pub struct Settings {
     pub max_swapout_mb_s: f64,
     /// CPU cores the running jobs may be expected to use together.
     pub max_cores: f64,
+    /// Jobs always allowed to run together as far as CPU and load go, so a busy machine
+    /// never leaves the line stuck with one job running. RAM and swap still apply.
+    pub min_running: usize,
     /// OpenRouter model that predicts a job's RAM and cores. None turns it off.
     pub model: Option<String>,
     /// Seconds to wait for the model before using what past runs say.
@@ -45,6 +48,7 @@ impl Settings {
             max_load_per_core: env_parse("AGENT_BOUNCER_MAX_LOAD").unwrap_or(1.5),
             max_swapout_mb_s: env_parse("AGENT_BOUNCER_MAX_SWAPOUT").unwrap_or(25.0),
             max_cores: env_parse("AGENT_BOUNCER_MAX_CORES").unwrap_or(cores as f64),
+            min_running: env_parse("AGENT_BOUNCER_MIN_RUNNING").unwrap_or(2),
             model: match std::env::var("AGENT_BOUNCER_MODEL") {
                 Ok(v) if matches!(v.trim(), "" | "off" | "none") => None,
                 Ok(v) => Some(v.trim().to_string()),

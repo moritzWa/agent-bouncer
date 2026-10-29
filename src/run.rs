@@ -213,15 +213,16 @@ fn machine_check(
             return Err(("ram", snap));
         }
     }
+    let crowded = running.len() >= settings.min_running;
     if !crate::headroom::cores_fit(
         settings.max_cores,
         crate::headroom::committed_cores(&running, now_ms()),
         pred.cores,
-        others_running,
+        crowded,
     ) {
         return Err(("cores", snap));
     }
-    if others_running && settings.max_load_per_core > 0.0 {
+    if crowded && settings.max_load_per_core > 0.0 {
         let limit = settings.max_load_per_core * sysinfo::cores() as f64;
         if sysinfo::load_average().is_some_and(|load| load > limit) {
             return Err(("load", snap));
@@ -239,7 +240,7 @@ fn machine_check(
     if others_running && pred.ram_mb >= LIGHT_JOB_MB && settling(root, settings.settle_ms) {
         return Err(("settle", snap));
     }
-    if settings.max_cpu_busy < 100.0 {
+    if crowded && settings.max_cpu_busy < 100.0 {
         if let Some(cpu) = sysinfo::cpu_busy_pct() {
             snap.cpu = Some(cpu);
             if cpu > settings.max_cpu_busy {
