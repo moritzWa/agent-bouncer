@@ -202,7 +202,7 @@ fn machine_check(
     if let Some(mem) = sysinfo::memory() {
         snap.avail_gb = Some(mem.avail_gb);
         snap.swap_gb = Some(mem.swap_used_gb);
-        let reserved = crate::headroom::reserved_mb(&running);
+        let reserved = crate::headroom::reserved_mb(&running, now_ms());
         if !crate::headroom::fits(
             mem.avail_gb,
             settings.min_free_gb,
@@ -215,7 +215,7 @@ fn machine_check(
     }
     if !crate::headroom::cores_fit(
         settings.max_cores,
-        crate::headroom::committed_cores(&running),
+        crate::headroom::committed_cores(&running, now_ms()),
         pred.cores,
         others_running,
     ) {
@@ -479,6 +479,8 @@ pub fn run(opts: RunOpts) -> i32 {
         rss_mb: 0,
         est_peak_mb: pred.ram_mb,
         est_cores: pred.cores,
+        peak_mb: 0,
+        peak_cores: 0.0,
     };
     write_slots(&root, &held, &info);
     write_atomic(&last_admit_path(&root), b"");
@@ -573,6 +575,7 @@ pub fn run(opts: RunOpts) -> i32 {
             if let Some(usage) = sysinfo::group_usage(pgid) {
                 peak = peak.max(usage.rss_mb);
                 info.rss_mb = usage.rss_mb;
+                info.peak_mb = peak;
                 write_slots(&root, &held, &info);
                 // CPU time ticks in whole seconds on some systems, so measure over 4 s windows.
                 match cpu_ref {
@@ -580,6 +583,7 @@ pub fn run(opts: RunOpts) -> i32 {
                     Some((cpu, at)) if at.elapsed() >= Duration::from_secs(4) => {
                         let cores = (usage.cpu_secs - cpu).max(0.0) / at.elapsed().as_secs_f64();
                         peak_cores = peak_cores.max(cores);
+                        info.peak_cores = peak_cores;
                         cpu_ref = Some((usage.cpu_secs, Instant::now()));
                     }
                     Some(_) => {}

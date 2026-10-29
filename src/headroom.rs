@@ -75,9 +75,34 @@ pub fn percentile_f(sorted: &[f64], p: f64) -> f64 {
     sorted[index.min(sorted.len() - 1)]
 }
 
+/// Until a job has run this long, its estimate is all there is to go on.
+const RAMP_MS: u64 = 90_000;
+
+fn past_ramp(job: &SlotInfo, now_ms: u64) -> bool {
+    now_ms.saturating_sub(job.started_ms) >= RAMP_MS
+}
+
+/// The estimate, trusted less as the job proves it is smaller. After the ramp-up a
+/// job is assumed to need at most 1.5x what it has used so far, so a 20-minute job
+/// that never passed 60 MB stops holding back 2 GB for jobs that are waiting.
+pub fn expected_peak_mb(job: &SlotInfo, now_ms: u64) -> u64 {
+    if !past_ramp(job, now_ms) {
+        return job.est_peak_mb;
+    }
+    let seen = job.peak_mb.max(job.rss_mb);
+    job.est_peak_mb.min((seen * 3 / 2).max(seen + 300))
+}
+
+pub fn expected_cores(job: &SlotInfo, now_ms: u64) -> f64 {
+    if !past_ramp(job, now_ms) {
+        return job.est_cores;
+    }
+    job.est_cores.min((job.peak_cores * 1.5).max(0.5))
+}
+
 /// Cores the running jobs are expected to use at their busiest.
-pub fn committed_cores(running: &[SlotInfo]) -> f64 {
-    running.iter().map(|job| job.est_cores).sum()
+pub fn committed_cores(running: &[SlotInfo], now_ms: u64) -> f64 {
+    running.iter().map(|job| expected_cores(job, now_ms)).sum()
 }
 
 /// Whether a job expected to use `predicted` cores fits beside the running ones.
@@ -87,10 +112,10 @@ pub fn cores_fit(max_cores: f64, committed: f64, predicted: f64, others_running:
 }
 
 /// Memory the running jobs are still expected to grow into.
-pub fn reserved_mb(running: &[SlotInfo]) -> u64 {
+pub fn reserved_mb(running: &[SlotInfo], now_ms: u64) -> u64 {
     running
         .iter()
-        .map(|job| job.est_peak_mb.saturating_sub(job.rss_mb))
+        .map(|job| expected_peak_mb(job, now_ms).saturating_sub(job.rss_mb))
         .sum()
 }
 
@@ -135,6 +160,8 @@ mod tests {
             rss_mb: rss,
             est_peak_mb: est,
             est_cores: 0.0,
+            peak_mb: 0,
+            peak_cores: 0.0,
         }
     }
 
@@ -164,7 +191,29 @@ mod tests {
 
     #[test]
     fn reserves_what_running_jobs_have_yet_to_use() {
-        assert_eq!(reserved_mb(&[running(4000, 1000), running(500, 900)]), 3000);
+        assert_eq!(
+            reserved_mb(&[running(4000, 1000), running(500, 900)], 1_000),
+            3000
+        );
+    }
+
+    #[test]
+    fn a_long_running_small_job_stops_reserving_its_whole_estimate() {
+        let mut job = running(2400, 60);
+        job.est_cores = 2.5;
+        job.peak_mb = 80;
+        job.peak_cores = 0.1;
+        assert_eq!(reserved_mb(&[job.clone()], 1_000), 2340);
+        assert_eq!(reserved_mb(&[job.clone()], 120_000), 320);
+        assert_eq!(committed_cores(&[job.clone()], 1_000), 2.5);
+        assert_eq!(committed_cores(&[job], 120_000), 0.5);
+    }
+
+    #[test]
+    fn a_job_that_really_grew_keeps_its_reservation() {
+        let mut job = running(2400, 2000);
+        job.peak_mb = 2200;
+        assert_eq!(expected_peak_mb(&job, 120_000), 2400);
     }
 
     #[test]

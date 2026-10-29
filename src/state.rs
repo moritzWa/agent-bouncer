@@ -301,6 +301,11 @@ pub struct SlotInfo {
     /// CPU cores the job is expected to use at its busiest.
     #[serde(default)]
     pub est_cores: f64,
+    /// Highest memory and CPU the job has actually used so far.
+    #[serde(default)]
+    pub peak_mb: u64,
+    #[serde(default)]
+    pub peak_cores: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

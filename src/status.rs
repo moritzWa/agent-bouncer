@@ -167,7 +167,7 @@ pub fn collect(root: &Path, settings: &Settings, with_cpu: bool) -> Report {
             settings.slots
         },
         slots_in_use: in_use,
-        cores_committed: crate::headroom::committed_cores(&running),
+        cores_committed: crate::headroom::committed_cores(&running, now_ms()),
         cores_total: settings.max_cores,
         avail_gb: mem.map(|m| m.avail_gb),
         swap_gb: mem.map(|m| m.swap_used_gb),
@@ -262,6 +262,8 @@ mod estimate_tests {
             rss_mb: 0,
             est_peak_mb: 0,
             est_cores: 0.0,
+            peak_mb: 0,
+            peak_cores: 0.0,
         }
     }
 
