@@ -76,6 +76,27 @@ impl Waiter {
         self.write_info();
     }
 
+    fn head_info(&self) -> Option<WaitInfo> {
+        let mine = format!("{}.lock", self.name);
+        let mut names: Vec<String> = fs::read_dir(&self.dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".lock"))
+            .collect();
+        names.sort();
+        for name in names {
+            if name == mine {
+                return None;
+            }
+            if waiter_alive(&self.dir, &name) {
+                let json = fs::read(self.dir.join(name.replace(".lock", ".json"))).ok()?;
+                return serde_json::from_slice(&json).ok();
+            }
+        }
+        None
+    }
+
     fn is_head(&self) -> bool {
         let mine = format!("{}.lock", self.name);
         let Ok(entries) = fs::read_dir(&self.dir) else {
@@ -229,6 +250,20 @@ fn machine_check(
     Ok(snap)
 }
 
+const BACKFILL_MAX_MB: u64 = 1500;
+const BACKFILL_MAX_CORES: f64 = 2.0;
+const BACKFILL_HEAD_PATIENCE_MS: u64 = 5 * 60_000;
+
+/// A small job may pass a big one that is stuck waiting for RAM or cores, so a
+/// 15-second test does not sit behind a 4 GB build. Once the big job has
+/// waited a few minutes the line is strict again, so it cannot starve.
+fn may_backfill(head: &WaitInfo, now: u64, ram_mb: u64, cores: f64) -> bool {
+    ram_mb <= BACKFILL_MAX_MB
+        && cores <= BACKFILL_MAX_CORES
+        && matches!(head.reason.as_str(), "ram" | "cores")
+        && now.saturating_sub(head.since_ms) < BACKFILL_HEAD_PATIENCE_MS
+}
+
 fn explain(reason: &str) -> &'static str {
     match reason {
         "queue" => "other jobs are ahead in line",
@@ -373,7 +408,11 @@ pub fn run(opts: RunOpts) -> i32 {
         }
 
         let mut snap = Snapshot::default();
-        let attempt: Result<Admitted, &'static str> = if !waiter.is_head() {
+        let behind_head = !waiter.is_head()
+            && !waiter
+                .head_info()
+                .is_some_and(|head| may_backfill(&head, now_ms(), pred.ram_mb, pred.cores));
+        let attempt: Result<Admitted, &'static str> = if behind_head {
             Err("queue")
         } else {
             match try_acquire(&root, settings.slots, opts.weight) {
@@ -575,4 +614,41 @@ pub fn run(opts: RunOpts) -> i32 {
         }
     }
     code
+}
+
+#[cfg(test)]
+mod backfill_tests {
+    use super::*;
+
+    fn head(reason: &str, waited_ms: u64) -> WaitInfo {
+        WaitInfo {
+            job: "h".into(),
+            pid: 1,
+            label: None,
+            cmd: "x".into(),
+            cwd: "/".into(),
+            since_ms: 1_000_000 - waited_ms,
+            weight: 1,
+            reason: reason.into(),
+        }
+    }
+
+    #[test]
+    fn small_jobs_pass_a_head_stuck_on_ram_or_cores() {
+        assert!(may_backfill(&head("ram", 10_000), 1_000_000, 900, 1.2));
+        assert!(may_backfill(&head("cores", 10_000), 1_000_000, 900, 1.2));
+    }
+
+    #[test]
+    fn big_jobs_and_other_reasons_keep_the_line_strict() {
+        assert!(!may_backfill(&head("ram", 10_000), 1_000_000, 4_000, 1.0));
+        assert!(!may_backfill(&head("ram", 10_000), 1_000_000, 900, 6.0));
+        assert!(!may_backfill(&head("slots", 10_000), 1_000_000, 900, 1.0));
+        assert!(!may_backfill(&head("queue", 10_000), 1_000_000, 900, 1.0));
+    }
+
+    #[test]
+    fn a_head_that_waited_long_is_not_passed_again() {
+        assert!(!may_backfill(&head("ram", 6 * 60_000), 1_000_000, 900, 1.0));
+    }
 }
