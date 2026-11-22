@@ -81,12 +81,17 @@ pub fn estimate_free_ms(
     if free_at.is_empty() {
         free_at.push(0);
     }
+    // The line is clear when the last waiting job is done. Running jobs that
+    // nobody waits for (a 2-hour benchmark) do not hold it up. With nobody
+    // waiting there is nothing to estimate.
+    let mut line_clear = None;
     for job in waiting {
         let duration = crate::stats::percentile(&history(job.label.as_deref(), &job.cmd), 0.5);
         let slot = free_at.iter_mut().min()?;
         *slot += duration;
+        line_clear = line_clear.max(Some(*slot));
     }
-    free_at.into_iter().max()
+    line_clear
 }
 
 fn is_locked(path: &Path) -> bool {
@@ -296,8 +301,8 @@ mod estimate_tests {
         history(dir.path(), &[("a", 10_000), ("b", 30_000), ("c", 8_000)]);
         let running = [slot("a", 0), slot("b", 0)];
         let free = estimate_free_ms(dir.path(), 2, &running, &[wait("c")], 4_000);
-        // a ends in 6s, c then runs 8s there; b still has 26s.
-        assert_eq!(free, Some(26_000));
+        // a ends in 6s and c then runs 8s there. b's 26s does not hold c up.
+        assert_eq!(free, Some(14_000));
         let free = estimate_free_ms(
             dir.path(),
             2,
@@ -312,15 +317,22 @@ mod estimate_tests {
     fn unknown_jobs_take_the_typical_time_and_no_history_means_no_estimate() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
-            estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1),
+            estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[wait("zzz")], 1),
             None
         );
         history(dir.path(), &[("a", 10_000)]);
         assert_eq!(
-            estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[], 1_000),
-            Some(9_000)
+            estimate_free_ms(dir.path(), 2, &[slot("zzz", 0)], &[wait("zzz")], 1_000),
+            Some(19_000)
         );
         assert_eq!(estimate_free_ms(dir.path(), 2, &[], &[], 1), None);
+    }
+
+    #[test]
+    fn running_jobs_alone_give_no_estimate() {
+        let dir = tempfile::tempdir().unwrap();
+        history(dir.path(), &[("a", 7_200_000)]);
+        assert_eq!(estimate_free_ms(dir.path(), 2, &[slot("a", 0)], &[], 1_000), None);
     }
 
     #[test]
@@ -328,11 +340,10 @@ mod estimate_tests {
         let dir = tempfile::tempdir().unwrap();
         history(dir.path(), &[("a", 10_000), ("a", 12_000), ("a", 14_000)]);
         let long = [slot("a", 0)];
-        assert_eq!(
-            estimate_free_ms(dir.path(), 2, &long, &[], 600_000),
-            Some(300_000)
-        );
-        assert!(estimate_free_ms(dir.path(), 2, &long, &[], 13_000).unwrap() > 0);
+        let behind = [wait("c")];
+        let free = estimate_free_ms(dir.path(), 2, &long, &behind, 600_000).unwrap();
+        assert!(free > 300_000);
+        assert!(estimate_free_ms(dir.path(), 2, &long, &behind, 13_000).unwrap() > 0);
     }
 
     #[test]
