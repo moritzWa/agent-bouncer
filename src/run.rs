@@ -258,14 +258,21 @@ const TINY_MAX_MB: u64 = 700;
 const TINY_MAX_CORES: f64 = 1.0;
 
 /// A small job may pass a big one that is stuck waiting for RAM or cores, so a
-/// 15-second test does not sit behind a 4 GB build. Once the big job has
-/// waited a while the line is strict again, so it cannot starve. Tiny jobs
-/// take too little to delay the big one, so they always pass.
+/// 15-second test does not sit behind a 4 GB build. Tiny jobs take too little
+/// to delay the big one, so they always pass. A head stuck on RAM is only
+/// waiting for memory, so any job that fits in 1.5 GB passes however many
+/// cores it uses (its own check still guards the CPU budget) and however long
+/// the head has waited: a 6 GB build that cannot start while long jobs run
+/// (Nov 2026: 26 minutes, with 3 of 23 cores busy) must not hold the whole line.
+/// Behind a head stuck on cores, mid-size jobs pass only for the first 15 minutes.
 fn may_backfill(head: &WaitInfo, now: u64, ram_mb: u64, cores: f64) -> bool {
     if !matches!(head.reason.as_str(), "ram" | "cores") {
         return false;
     }
     if ram_mb <= TINY_MAX_MB && cores <= TINY_MAX_CORES {
+        return true;
+    }
+    if head.reason == "ram" && ram_mb <= BACKFILL_MAX_MB {
         return true;
     }
     ram_mb <= BACKFILL_MAX_MB
@@ -655,27 +662,37 @@ mod backfill_tests {
     #[test]
     fn big_jobs_and_other_reasons_keep_the_line_strict() {
         assert!(!may_backfill(&head("ram", 10_000), 1_000_000, 4_000, 1.0));
-        assert!(!may_backfill(&head("ram", 10_000), 1_000_000, 900, 6.0));
+        assert!(!may_backfill(&head("cores", 10_000), 1_000_000, 900, 6.0));
         assert!(!may_backfill(&head("slots", 10_000), 1_000_000, 900, 1.0));
         assert!(!may_backfill(&head("queue", 10_000), 1_000_000, 900, 1.0));
     }
 
     #[test]
-    fn a_head_that_waited_long_is_not_passed_again() {
-        assert!(may_backfill(&head("ram", 6 * 60_000), 1_000_000, 900, 1.0));
+    fn a_core_stuck_head_that_waited_long_is_not_passed_again() {
+        assert!(may_backfill(&head("cores", 6 * 60_000), 1_000_000, 900, 1.2));
         assert!(!may_backfill(
-            &head("ram", 16 * 60_000),
+            &head("cores", 16 * 60_000),
             1_000_000,
             900,
-            1.0
+            1.2
         ));
     }
 
     #[test]
+    fn a_ram_stuck_head_never_holds_up_jobs_under_1_5_gb() {
+        // Nov 2026: a 6.5 GB ship job waited 26 minutes for RAM and the
+        // ffmpeg (669 MB, 8.5 cores) and pip jobs behind it waited with it.
+        let waited = 900_000;
+        assert!(may_backfill(&head("ram", waited), 1_000_000, 669, 8.5));
+        assert!(may_backfill(&head("ram", waited), 1_000_000, 988, 2.4));
+        assert!(!may_backfill(&head("ram", waited), 1_000_000, 2_000, 1.0));
+    }
+
+    #[test]
     fn tiny_jobs_pass_however_long_the_head_has_waited() {
-        assert!(may_backfill(&head("ram", 16 * 60_000), 1_000_000, 512, 0.5));
+        assert!(may_backfill(&head("cores", 16 * 60_000), 1_000_000, 512, 0.5));
         assert!(!may_backfill(
-            &head("ram", 16 * 60_000),
+            &head("cores", 16 * 60_000),
             1_000_000,
             1_200,
             1.5
