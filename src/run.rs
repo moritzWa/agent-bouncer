@@ -252,6 +252,7 @@ fn machine_check(
 }
 
 const BACKFILL_MAX_MB: u64 = 1500;
+const RAM_STUCK_BACKFILL_MAX_MB: u64 = 3000;
 const BACKFILL_MAX_CORES: f64 = 2.0;
 const BACKFILL_HEAD_PATIENCE_MS: u64 = 15 * 60_000;
 const TINY_MAX_MB: u64 = 700;
@@ -260,10 +261,12 @@ const TINY_MAX_CORES: f64 = 1.0;
 /// A small job may pass a big one that is stuck waiting for RAM or cores, so a
 /// 15-second test does not sit behind a 4 GB build. Tiny jobs take too little
 /// to delay the big one, so they always pass. A head stuck on RAM is only
-/// waiting for memory, so any job that fits in 1.5 GB passes however many
+/// waiting for memory, so any job that fits in 3 GB passes however many
 /// cores it uses (its own check still guards the CPU budget) and however long
 /// the head has waited: a 6 GB build that cannot start while long jobs run
 /// (Nov 2026: 26 minutes, with 3 of 23 cores busy) must not hold the whole line.
+/// A Playwright e2e stuck 1h33m on RAM held 2 GB cargo tests the same way.
+/// The 3 GB limit still keeps other big jobs behind it.
 /// Behind a head stuck on cores, mid-size jobs pass only for the first 15 minutes.
 fn may_backfill(head: &WaitInfo, now: u64, ram_mb: u64, cores: f64) -> bool {
     if !matches!(head.reason.as_str(), "ram" | "cores") {
@@ -272,7 +275,7 @@ fn may_backfill(head: &WaitInfo, now: u64, ram_mb: u64, cores: f64) -> bool {
     if ram_mb <= TINY_MAX_MB && cores <= TINY_MAX_CORES {
         return true;
     }
-    if head.reason == "ram" && ram_mb <= BACKFILL_MAX_MB {
+    if head.reason == "ram" && ram_mb <= RAM_STUCK_BACKFILL_MAX_MB {
         return true;
     }
     ram_mb <= BACKFILL_MAX_MB
@@ -679,13 +682,21 @@ mod backfill_tests {
     }
 
     #[test]
-    fn a_ram_stuck_head_never_holds_up_jobs_under_1_5_gb() {
+    fn a_ram_stuck_head_never_holds_up_jobs_under_3_gb() {
         // Nov 2026: a 6.5 GB ship job waited 26 minutes for RAM and the
         // ffmpeg (669 MB, 8.5 cores) and pip jobs behind it waited with it.
+        // Nov 26: a Playwright e2e waited 1h33m and 2 GB cargo tests waited too.
         let waited = 900_000;
         assert!(may_backfill(&head("ram", waited), 1_000_000, 669, 8.5));
         assert!(may_backfill(&head("ram", waited), 1_000_000, 988, 2.4));
-        assert!(!may_backfill(&head("ram", waited), 1_000_000, 2_000, 1.0));
+        assert!(may_backfill(&head("ram", waited), 1_000_000, 2_000, 1.0));
+        assert!(may_backfill(&head("ram", 900_000), 1_000_000, 3_000, 2.3));
+        assert!(!may_backfill(&head("ram", waited), 1_000_000, 3_100, 1.0));
+    }
+
+    #[test]
+    fn a_core_stuck_head_still_only_passes_jobs_under_1_5_gb() {
+        assert!(!may_backfill(&head("cores", 10_000), 1_000_000, 2_000, 1.0));
     }
 
     #[test]
